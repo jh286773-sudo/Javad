@@ -188,6 +188,7 @@ class ToobitMarketDataClient(
         "5m" -> 5 * 60_000L
         "15m" -> 15 * 60_000L
         "30m" -> 30 * 60_000L
+        "45m" -> 45 * 60_000L
         "1h" -> 60 * 60_000L
         "2h" -> 2 * 60 * 60_000L
         else -> throw IllegalArgumentException("Unsupported Toobit source interval: $interval")
