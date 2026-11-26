@@ -25,11 +25,12 @@ data class TimeframeSignal(
  * last committed ta.cum value and do not advance bar_index. The final candle
  * snapshot is committed exactly once when Toobit reports it closed.
  *
- * The history anchor parameters on loadHistory allow the caller to align
- * bar_index and ta.cum with a known Pine chart-history starting point. If no
- * external chart anchor is supplied, the first Toobit candle is bar_index 0
- * and the cumulative sum starts at zero. Exact TradingView parity therefore
- * requires identical chart history and OHLC data, not merely the same interval.
+ * Numbering follows Pine's chart dataset: the earliest candle returned by
+ * Toobit's full-history request is bar_index 0; each subsequent candle gets
+ * the next integer. ta.cum starts at zero on that same first candle. The
+ * numbering and cumulative state are independent for each contract/timeframe.
+ * TradingView numerical parity still requires identical history boundaries and
+ * OHLC data; different exchange feeds cannot be assumed to share those values.
  *
  * Changing timeframe invalidates every processor. The caller must reload
  * history and reconnect the stream at the new interval before analysis resumes.
@@ -83,18 +84,14 @@ class SelectedTimeframeAnalysis(
     @Synchronized
     fun loadHistory(
         symbol: String,
-        candles: List<MarketCandle>,
-        firstChartBarIndex: Long = 0L,
-        initialCumulativeAbsoluteDelta: Double = 0.0
+        candles: List<MarketCandle>
     ) {
         val normalized = normalizeSelectedSymbol(symbol)
         require(candles.isNotEmpty()) { "Complete Toobit history is required before live analysis" }
 
         val processor = LuxAlgoFvgAutoProcessor(
             chartTimeframe = settings.selectedTimeframe,
-            autoThresholdEnabled = autoThresholdEnabled,
-            firstChartBarIndex = firstChartBarIndex,
-            initialCumulativeAbsoluteDelta = initialCumulativeAbsoluteDelta
+            autoThresholdEnabled = autoThresholdEnabled
         )
         processor.processHistory(candles)
 
