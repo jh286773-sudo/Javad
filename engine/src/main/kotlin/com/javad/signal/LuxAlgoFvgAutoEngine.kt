@@ -150,3 +150,22 @@ class DirectionSignalGate {
 
     fun current(): FvgDirection? = currentDirection
 }
+
+
+/** Keeps duplicate-suppression state independent for every selected contract. */
+class PerSymbolDirectionSignalGate {
+    private val gates = mutableMapOf<String, DirectionSignalGate>()
+
+    fun accept(symbol: String, evaluation: FvgEvaluation): Signal? {
+        val normalized = symbol.trim().uppercase()
+        require(normalized.isNotEmpty()) { "Symbol must not be blank" }
+        return gates.getOrPut(normalized) { DirectionSignalGate() }.accept(evaluation)
+    }
+
+    fun current(symbol: String): FvgDirection? =
+        gates[symbol.trim().uppercase()]?.current()
+
+    fun remove(symbol: String) {
+        gates.remove(symbol.trim().uppercase())
+    }
+}
