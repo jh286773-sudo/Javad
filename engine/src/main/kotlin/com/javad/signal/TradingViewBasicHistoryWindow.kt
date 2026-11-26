@@ -9,13 +9,10 @@ import java.time.temporal.TemporalAdjusters
 /**
  * Selects the history start used by Javad.
  *
- * For the active 5-minute TradingView comparison, the user supplied and
- * confirmed 2026-11-09 00:00:00 UTC as the first chart candle. This is a fixed
- * anchor, not a rolling 5,000-bar window. Every 5-minute symbol starts its own
- * bar_index and cumulative Auto Threshold at this timestamp.
- *
- * Other intervals retain the TradingView Basic-plan approximation: 5,000
- * intraday bars aligned to the documented calendar boundary (week/month/year).
+ * Uses the TradingView Basic-plan intraday history window: 5,000 bars back,
+ * aligned to the documented calendar boundary (week/month/year). For 5m,
+ * the threshold date is aligned to the beginning of that UTC week.
+ * The first returned candle becomes Pine bar_index 0 and the start of ta.cum.
  * Toobit timestamps are Unix milliseconds and UTC is used for alignment.
  */
 object TradingViewBasicHistoryWindow {
@@ -27,10 +24,6 @@ object TradingViewBasicHistoryWindow {
         zoneId: ZoneId = ZoneOffset.UTC
     ): Long {
         require(endTimeMillis > 0L) { "endTimeMillis must be positive" }
-
-        if (timeframe == AnalysisTimeframe.FIVE_MINUTES) {
-            return Instant.parse("2026-11-09T00:00:00Z").toEpochMilli()
-        }
 
         val lookbackMillis = HISTORICAL_BARS.toLong() * timeframe.durationMillis
         val threshold = Instant.ofEpochMilli(endTimeMillis - lookbackMillis).atZone(zoneId)
