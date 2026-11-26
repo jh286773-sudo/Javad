@@ -120,6 +120,9 @@ class LuxAlgoFvgAutoProcessor(
 
     fun process(candle: MarketCandle): FvgEvaluation {
         require(candle.openTime > 0L) { "Candle open time must be positive" }
+        require(candle.openTime % expectedIntervalMillis == 0L) {
+            "Candle open time is not aligned to the Toobit $timeframe interval"
+        }
         val previous = recentCandles.lastOrNull()
         if (previous != null) {
             require(candle.openTime - previous.openTime == expectedIntervalMillis) {
