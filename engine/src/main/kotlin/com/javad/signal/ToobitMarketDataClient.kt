@@ -167,7 +167,7 @@ class ToobitMarketDataClient(
 
     private fun parseKline(row: JsonNode): MarketCandle {
         require(row.isArray && row.size() >= 6) { "Unexpected Toobit kline row" }
-        return MarketCandle(
+        val candle = MarketCandle(
             openTime = row[0].asLong(),
             open = row[1].asDouble(),
             high = row[2].asDouble(),
@@ -175,6 +175,15 @@ class ToobitMarketDataClient(
             close = row[4].asDouble(),
             volume = row[5].asDouble()
         )
+        if (candle.openTime <= 0L ||
+            !listOf(candle.open, candle.high, candle.low, candle.close, candle.volume).all { it.isFinite() } ||
+            candle.open <= 0.0 || candle.high <= 0.0 || candle.low <= 0.0 || candle.close <= 0.0 ||
+            candle.volume < 0.0 || candle.high < maxOf(candle.open, candle.close) ||
+            candle.low > minOf(candle.open, candle.close) || candle.high < candle.low
+        ) {
+            throw ToobitApiException("Toobit returned an invalid kline row")
+        }
+        return candle
     }
 
     private fun encode(value: String): String =
