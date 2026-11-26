@@ -27,7 +27,7 @@ data class MonitoringDashboardState(
 
     /** Text shown on the single central monitoring toggle button. */
     val monitoringButtonText: String
-        get() = if (monitoringEnabled) "خاموش" else "روشن"
+        get() = if (monitoringEnabled) "تحلیل روشن" else "تحلیل خاموش"
 
     val selectedSymbols: List<String>
         get() = settings.symbols.sorted()
