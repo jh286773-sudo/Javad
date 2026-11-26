@@ -28,9 +28,10 @@ data class TimeframeSignal(
  * bar_index, and FVG box arrays.
  *
  * The raw bullish_fvg_cnd/bearish_fvg_cnd conditions are evaluated on every
- * live update so the displayed FVG state can preview intrabar changes. Signal
- * delivery is gated until the exchange marks the candle closed; an intrabar
- * preview can never emit or consume the once-per-candle notification slot.
+ * live update. A signal is delivered immediately on the first update where
+ * the source condition becomes true, matching an intrabar Pine alert; the
+ * once-per-candle guard suppresses repeats while the candle is still open.
+ * Only the final candle snapshot commits ta.cum, bar_index, and FVG arrays.
  *
  * Numbering follows Pine's chart dataset: the earliest candle returned by
  * Toobit's history request is bar_index 0; each subsequent candle gets the
@@ -165,13 +166,10 @@ class SelectedTimeframeAnalysis(
             lastProcessedOpenTime[normalized] = update.candle.openTime
         }
 
-        // Keep intrabar evaluation for live FVG previews, but do not emit a
-        // signal until Toobit confirms this candle is closed. This ensures the
-        // signal uses the final OHLC snapshot and cannot fire then disappear.
-        if (!update.isClosed) return null
-
-        // Permit consecutive same-direction signals on different closed
-        // candles; suppress duplicate delivery for the same candle only.
+        // LuxAlgo's bullish_fvg_cnd/bearish_fvg_cnd and alertcondition are
+        // evaluated on the live chart bar. Emit as soon as the condition first
+        // becomes true; do not add a candle-close requirement. The per-candle
+        // guard below prevents repeated notifications on subsequent ticks.
         if (evaluation.bullishFvg == evaluation.bearishFvg) return null
         if (lastEmittedSignalOpenTime[normalized] == update.candle.openTime) return null
         val delta = evaluation.deltaPercent ?: return null
