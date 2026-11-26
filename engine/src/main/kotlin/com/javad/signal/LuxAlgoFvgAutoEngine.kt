@@ -34,7 +34,39 @@ data class FvgEvaluation(
     val deltaPercent: Double?,
     val autoThreshold: Double?,
     val bullishFvg: Boolean,
-    val bearishFvg: Boolean
+    val bearishFvg: Boolean,
+    /** Current LuxAlgo FVG-box state after this bar/tick is evaluated. */
+    val fvgState: FvgStateUpdate? = null
+)
+
+/** One of the two rectangles LuxAlgo creates for each FVG. */
+data class FvgBox(
+    val top: Double,
+    val bottom: Double
+)
+
+/**
+ * The paired boxes created by the LuxAlgo source for one FVG.
+ * left/right coordinates preserve box.new(n - 1, ..., n + fvg_extend, ...).
+ */
+data class FvgZone(
+    val direction: FvgDirection,
+    val chartBarIndex: Long,
+    val leftBarIndex: Long,
+    val rightBarIndex: Long,
+    val maxBox: FvgBox,
+    val minBox: FvgBox
+)
+
+/**
+ * Snapshot of the FVG arrays after evaluating a bar/tick.
+ * formedZones and removedZones are the changes on this evaluation;
+ * activeZones is the resulting array state.
+ */
+data class FvgStateUpdate(
+    val activeZones: List<FvgZone>,
+    val formedZones: List<FvgZone>,
+    val removedZones: List<FvgZone>
 )
 
 data class Signal(
@@ -127,28 +159,108 @@ class LuxAlgoFvgAutoCalculator(
 }
 
 /**
- * Maps chronological Toobit chart candles to LuxAlgo's history references.
- * On chart candle i: close[1]/open[1] come from i-1, high/low from i,
- * and high[2]/low[2] come from i-2.
+ * Maps chronological Toobit chart candles to LuxAlgo's history references and
+ * reproduces the source's paired FVG boxes and invalidation loops.
+ *
+ * Realtime preview starts from the last committed arrays on every tick,
+ * matching Pine rollback. Only a closed candle commits the arrays and the
+ * cumulative Auto Threshold/bar_index state.
  */
 class LuxAlgoFvgAutoProcessor(
     private val chartTimeframe: AnalysisTimeframe,
-    autoThresholdEnabled: Boolean = true
+    autoThresholdEnabled: Boolean = true,
+    private val fvgExtend: Int = 1
 ) {
     private val calculator = LuxAlgoFvgAutoCalculator(autoThresholdEnabled)
     private val recentCandles = mutableListOf<MarketCandle>()
+    private val bullishZones = mutableListOf<FvgZone>()
+    private val bearishZones = mutableListOf<FvgZone>()
     private val expectedIntervalMillis = chartTimeframe.durationMillis
 
-    /** Chart mode: each update belongs to the selected chart timeframe. */
-    fun preview(candle: MarketCandle): FvgEvaluation =
-        calculator.preview(inputFor(candle))
+    init {
+        require(fvgExtend >= 0) { "FVG extension cannot be negative" }
+    }
 
-    /** Commits one completed chart bar exactly once. */
-    fun process(candle: MarketCandle): FvgEvaluation {
-        val evaluation = calculator.evaluate(inputFor(candle))
-        recentCandles += candle
-        if (recentCandles.size > 2) recentCandles.removeAt(0)
-        return evaluation
+    /** Evaluate a live chart-bar update without committing Pine var/array state. */
+    fun preview(candle: MarketCandle): FvgEvaluation =
+        evaluateCandle(candle, commit = false)
+
+    /** Commit one completed chart bar exactly once. */
+    fun process(candle: MarketCandle): FvgEvaluation =
+        evaluateCandle(candle, commit = true)
+
+    /** Returns the last committed FVG arrays, in newest-first source order. */
+    fun activeFvgZones(): List<FvgZone> = bullishZones.toList() + bearishZones.toList()
+
+    private fun evaluateCandle(candle: MarketCandle, commit: Boolean): FvgEvaluation {
+        val input = inputFor(candle)
+        val base = if (commit) calculator.evaluate(input) else calculator.preview(input)
+
+        // Pine iterates the existing arrays and deletes the paired boxes when
+        // the source's exact wick invalidation condition becomes true.
+        val nextBullish = bullishZones.toMutableList()
+        val nextBearish = bearishZones.toMutableList()
+        val removed = mutableListOf<FvgZone>()
+
+        val removedBullish = nextBullish.filter { candle.low < it.minBox.bottom }
+        nextBullish.removeAll(removedBullish.toSet())
+        removed += removedBullish
+
+        // LuxAlgo checks high > box.get_top(bearish_fvg_max), which is src_h
+        // (the lower boundary of the bearish gap), not its upper boundary.
+        val removedBearish = nextBearish.filter { candle.high > it.maxBox.top }
+        nextBearish.removeAll(removedBearish.toSet())
+        removed += removedBearish
+
+        val formed = mutableListOf<FvgZone>()
+        val midpointBullish = if (base.bullishFvg) {
+            (candle.low + input.highTwoBarsAgo!!) / 2.0
+        } else null
+        if (base.bullishFvg) {
+            val oldHigh = input.highTwoBarsAgo!!
+            formed += FvgZone(
+                direction = FvgDirection.LONG,
+                chartBarIndex = base.chartBarIndex,
+                leftBarIndex = base.chartBarIndex - 1L,
+                rightBarIndex = base.chartBarIndex + fvgExtend,
+                maxBox = FvgBox(top = candle.low, bottom = midpointBullish!!),
+                minBox = FvgBox(top = midpointBullish, bottom = oldHigh)
+            )
+        }
+
+        if (base.bearishFvg) {
+            val oldLow = input.lowTwoBarsAgo!!
+            val midpoint = (candle.high + oldLow) / 2.0
+            formed += FvgZone(
+                direction = FvgDirection.SHORT,
+                chartBarIndex = base.chartBarIndex,
+                leftBarIndex = base.chartBarIndex - 1L,
+                rightBarIndex = base.chartBarIndex + fvgExtend,
+                maxBox = FvgBox(top = candle.high, bottom = midpoint),
+                minBox = FvgBox(top = midpoint, bottom = oldLow)
+            )
+        }
+
+        val resultingZones = nextBullish + formed.filter { it.direction == FvgDirection.LONG } +
+            nextBearish + formed.filter { it.direction == FvgDirection.SHORT }
+        val state = FvgStateUpdate(
+            activeZones = resultingZones,
+            formedZones = formed,
+            removedZones = removed
+        )
+
+        if (commit) {
+            bullishZones.clear()
+            bullishZones += nextBullish
+            bearishZones.clear()
+            bearishZones += nextBearish
+            formed.filter { it.direction == FvgDirection.LONG }.forEach(bullishZones::add)
+            formed.filter { it.direction == FvgDirection.SHORT }.forEach(bearishZones::add)
+            recentCandles += candle
+            if (recentCandles.size > 2) recentCandles.removeAt(0)
+        }
+
+        return base.copy(fvgState = state)
     }
 
     private fun inputFor(candle: MarketCandle): FvgInput {
