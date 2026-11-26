@@ -32,6 +32,7 @@ class SelectedTimeframeAnalysis(
     private var settings: AnalysisSettings = initialSettings
     private val processors = mutableMapOf<String, LuxAlgoFvgAutoProcessor>()
     private val lastProcessedOpenTime = mutableMapOf<String, Long>()
+    private val emittedSignalOpenTime = mutableMapOf<String, Long>()
     private val signalGates = PerSymbolDirectionSignalGate()
 
     @Synchronized
@@ -52,11 +53,13 @@ class SelectedTimeframeAnalysis(
         if (timeframeChanged) {
             processors.clear()
             lastProcessedOpenTime.clear()
+            emittedSignalOpenTime.clear()
             (previousSymbols + next.symbols).forEach(signalGates::remove)
         } else {
             removedSymbols.forEach { symbol ->
                 processors.remove(symbol)
                 lastProcessedOpenTime.remove(symbol)
+                emittedSignalOpenTime.remove(symbol)
                 signalGates.remove(symbol)
             }
         }
@@ -79,6 +82,8 @@ class SelectedTimeframeAnalysis(
 
         processors[normalized] = processor
         lastProcessedOpenTime[normalized] = candles.last().openTime
+        emittedSignalOpenTime.remove(normalized)
+        signalGates.remove(normalized)
     }
 
     /**
@@ -93,8 +98,6 @@ class SelectedTimeframeAnalysis(
         check(update.timeframe == settings.selectedTimeframe) {
             "Received ${update.timeframe.apiInterval} candle while ${settings.selectedTimeframe.apiInterval} is selected"
         }
-        if (!update.isClosed) return null
-
         if (update.gapDetected) {
             invalidate(normalized)
             throw IllegalStateException(
@@ -110,7 +113,11 @@ class SelectedTimeframeAnalysis(
         if (lastTime != null && update.candle.openTime <= lastTime) return null
 
         val evaluation = try {
-            processor.process(update.candle)
+            if (update.isClosed) {
+                processor.process(update.candle)
+            } else {
+                processor.preview(update.candle)
+            }
         } catch (error: IllegalArgumentException) {
             invalidate(normalized)
             throw IllegalStateException(
@@ -118,9 +125,16 @@ class SelectedTimeframeAnalysis(
                 error
             )
         }
-        lastProcessedOpenTime[normalized] = update.candle.openTime
 
+        if (update.isClosed) {
+            lastProcessedOpenTime[normalized] = update.candle.openTime
+        }
+
+        // LuxAlgo's alertcondition can become true intrabar. Match a once-per-bar
+        // alert: first qualifying update wins, even if the condition later rolls back.
+        if (emittedSignalOpenTime[normalized] == update.candle.openTime) return null
         val signal = signalGates.accept(normalized, evaluation) ?: return null
+        emittedSignalOpenTime[normalized] = update.candle.openTime
         return TimeframeSignal(
             symbol = normalized,
             timeframe = settings.selectedTimeframe,
@@ -144,6 +158,7 @@ class SelectedTimeframeAnalysis(
     private fun invalidate(symbol: String) {
         processors.remove(symbol)
         lastProcessedOpenTime.remove(symbol)
+        emittedSignalOpenTime.remove(symbol)
         signalGates.remove(symbol)
     }
 }
