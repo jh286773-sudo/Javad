@@ -29,14 +29,15 @@ class LuxAlgoFvgAutoEngineTest {
     fun autoThresholdUsesSuppliedPineChartBarIndexForPartialHistoryWindows() {
         val calculator = LuxAlgoFvgAutoCalculator(
             autoThresholdEnabled = true,
-            firstChartBarIndex = 1_000L
+            firstChartBarIndex = 1_000L,
+            initialCumulativeAbsoluteDelta = 10.0
         )
 
         val result = calculator.evaluate(input(open = 100.0, close = 101.0))
 
-        // LuxAlgo: ta.cum(abs(delta_per)) / bar_index * 2.
-        // The first loaded page must not reset bar_index to zero.
-        assertEquals(0.002, result.autoThreshold!!, 1e-12)
+        // LuxAlgo: (prior cumulative |delta| + current |delta|) / bar_index * 2.
+        // A partial page must preserve both Pine's bar_index and prior ta.cum value.
+        assertEquals(0.022, result.autoThreshold!!, 1e-12)
         assertEquals(1_000L, result.chartBarIndex)
     }
 
