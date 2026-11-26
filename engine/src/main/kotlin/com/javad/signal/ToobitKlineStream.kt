@@ -24,7 +24,8 @@ data class ToobitCandleUpdate(
 /**
  * Public Toobit USDT-M kline stream. Subscribe only after loading history so
  * the caller can continue the LuxAlgo cumulative calculation chronologically.
- * The caller owns reconnect/recovery policy (implemented by the Android service).
+ * Unexpected disconnects are retried with bounded exponential backoff. The
+ * caller must still backfill missed candles before resuming signal evaluation.
  */
 class ToobitKlineStream(
     private val onUpdate: (ToobitCandleUpdate) -> Unit,
@@ -68,9 +69,6 @@ class ToobitKlineStream(
             last45MinuteBucketBySymbol.clear()
         }
         pingTask?.cancel(false)
-        val sourceInterval = if (timeframe == AnalysisTimeframe.FORTY_FIVE_MINUTES) "15m"
-            else timeframe.apiInterval
-
         val connection = openSocket(contracts, timeframe)
         return connection
     }
