@@ -2,6 +2,7 @@ package com.javad.signal
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -69,6 +70,18 @@ class LuxAlgoFvgAutoEngineTest {
             third.autoThreshold!!,
             1e-9
         )
+    }
+
+
+    @Test
+    fun processorRejectsMissingChartCandlesInsteadOfShiftingAutoThreshold() {
+        val processor = LuxAlgoFvgAutoProcessor(AnalysisTimeframe.FIFTEEN_MINUTES)
+        val start = 1_700_000_000_000L
+        processor.process(candle(100.0, 101.0, 105.0, 95.0, start))
+
+        assertFailsWith<IllegalArgumentException> {
+            processor.process(candle(102.0, 103.0, 108.0, 99.0, start + 30L * 60_000L))
+        }
     }
 
     @Test
