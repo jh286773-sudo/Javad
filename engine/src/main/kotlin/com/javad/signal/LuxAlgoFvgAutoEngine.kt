@@ -186,6 +186,11 @@ class DirectionSignalGate {
         if (evaluation.bullishFvg == evaluation.bearishFvg) return null
 
         val next = if (evaluation.bullishFvg) FvgDirection.LONG else FvgDirection.SHORT
+
+        // Javad emits a new directional level only when the LuxAlgo FVG
+        // direction changes. Consecutive same-colour levels are not new signals.
+        if (currentDirection == next) return null
+
         val delta = evaluation.deltaPercent ?: return null
         val threshold = evaluation.autoThreshold ?: return null
         currentDirection = next
