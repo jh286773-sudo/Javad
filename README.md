@@ -11,11 +11,17 @@ JAVAD is an Android-focused signal application for Toobit USDT-margined perpetua
 
 - Market: Toobit USDT-margined perpetual contracts only; JAVAD symbols use the `.P` suffix (for example, `BTCUSDT.P`).
 - Strategy: FVG + Auto Threshold only. Do not add EMA, RSI, ICT, or alternative strategies.
-- One shared chart timeframe for all selected symbols: 1m, 5m, 15m, 30m, 1h, or 2h. LuxAlgo FVG is explicitly in Chart mode (`fvg_tf = ""`), so FVG OHLC, `timeframe.change`, Toobit REST history, and the matching WebSocket kline topic all use this same selected interval; there is no independent FVG timeframe. Live candle updates are evaluated intrabar and each candle is committed once on close.
+- One shared chart timeframe for all selected symbols: 1m, 5m, 15m, 30m, 1h, or 2h; the initial default is 5m for the current BTCUSDT.P comparison. LuxAlgo FVG is explicitly in Chart mode (`fvg_tf = ""`), so FVG OHLC, `timeframe.change`, Toobit REST history, and the matching WebSocket kline topic all use this same selected interval; there is no independent FVG timeframe. Live candle updates are evaluated intrabar and each candle is committed once on close.
 - Javad calculates signals directly from Toobit public market data. TradingView, a paid TradingView plan, Pine alerts, and Webhooks are not required. No API key is used for public market data; no order-placement/trading endpoints are part of the signal engine.
 - For a TradingView Basic-plan comparison, the history loader requests a 5,000-bar lookback and aligns its start to TradingView's documented interval boundary (1–14m: week; 15–29m: month; 30–1439m: year). The implementation currently assumes UTC for Toobit chart alignment. The first returned Toobit candle becomes Pine-style `bar_index = 0`, and cumulative Auto Threshold starts from that dataset boundary, independently per contract. Exact numerical identity is still not guaranteed because Toobit and TradingView may differ in symbol feed, exchange timezone, first available candle, and OHLC revisions.
-- Emit every valid FVG + Auto event, including consecutive events in the same direction; keep each symbol's analysis state independent.
+- Signal delivery is limited to one notification per candle; after a LONG, further LONG levels are suppressed until a qualifying SHORT appears, and vice versa. Each symbol keeps an independent FVG/Auto and signal-direction state.
 - Keep development on the single `main` branch.
+
+## FVG + Auto Threshold audit
+
+The calculation and timeframe mapping are documented in [`FVG_TIMEFRAME_AUDIT.md`](FVG_TIMEFRAME_AUDIT.md). The engine ports the LuxAlgo Chart-mode formulas: previous-candle percentage delta, cumulative absolute-delta Auto Threshold divided by the Pine chart `bar_index` and multiplied by 2, and the original bullish/bearish three-candle gap conditions. The first candle in each loaded chart dataset is index 0; the first Auto Threshold is undefined at index 0, as in Pine. Each symbol maintains its own cumulative state.
+
+The 5-minute comparison anchor supplied for this project is 2026-11-09 00:00 UTC as the first chart candle. The candle beginning 2026-11-12 13:05 UTC is 1,021 five-minute intervals later and therefore maps to `bar_index = 1021` if both datasets begin at that same first candle. This is a timestamp/index check, not proof that Toobit and TradingView OHLC values are identical.
 
 ## Important implementation status
 
