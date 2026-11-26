@@ -27,6 +27,18 @@ class MonitoringDashboardStateTest {
     }
 
     @Test
+    fun monitoringButtonShowsOnlyOnOrOffBasedOnMonitoringState() {
+        val stopped = MonitoringDashboardState()
+        assertEquals("روشن", stopped.monitoringButtonText)
+
+        val running = stopped.setMonitoringEnabled(true)
+        assertEquals("خاموش", running.monitoringButtonText)
+
+        val stoppedAgain = running.setMonitoringEnabled(false)
+        assertEquals("روشن", stoppedAgain.monitoringButtonText)
+    }
+
+    @Test
     fun onlySelectedSymbolsAreMonitoredAndOnlyWhenMonitoringIsEnabled() {
         val stopped = MonitoringDashboardState()
             .updateAvailableSymbols(catalogue)
