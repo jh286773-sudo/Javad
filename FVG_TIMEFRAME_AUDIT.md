@@ -120,16 +120,17 @@ JAVAD uses the TradingView Basic-plan 5,000-bar history window for the selected 
 
 Exact numerical parity still requires identical first candle and OHLC values throughout the history, plus matching timezone and candle availability.
 
-## 8. Live updates, close handling, and data gaps
+## 8. Live updates, signal timing, and data gaps
 
-- Forming-candle updates are evaluated using preview/rollback semantics for live FVG-state display only.
-- A forming-candle preview cannot emit a LONG/SHORT signal and cannot consume the once-per-candle alert slot.
-- Signal conditions are checked against the final candle snapshot only after Toobit marks that candle closed (when the next source candle arrives).
-- The closed candle commits the cumulative Auto value, bar_index, and FVG arrays exactly once.
+- Every forming-candle update is evaluated using Pine realtime preview/rollback semantics. The current candle's high/low can make the raw FVG condition appear or disappear intrabar.
+- The source defines `bullish_fvg_cnd` and `bearish_fvg_cnd` directly from the FVG + Auto conditions and exposes them through `alertcondition(...)`; it does not add a `barstate.isconfirmed` / candle-close gate to these FVG alerts.
+- JAVAD therefore emits LONG/SHORT on the first live update where the corresponding source condition becomes true. It does not wait for the next candle.
+- The first qualifying update consumes that candle's one-notification slot, preventing duplicate notifications on later ticks of the same candle. A later opposite/repeated state on that same candle does not generate another notification.
+- Intrabar previews do not commit cumulative Auto value, `bar_index`, or FVG arrays. The final candle snapshot commits those states exactly once when Toobit marks the candle closed.
 - Duplicate or stale updates for the same candle do not commit cumulative values twice or emit duplicate signals.
 - Missing or out-of-order candles invalidate the affected symbol's processor; analysis must be warmed up again from REST history before continuing.
-- Every selected contract has independent history, bar index, cumulative delta, FVG zones, and last delivered direction.
-- Signal delivery is at most once per candle. Consecutive same-direction signals on different candles are allowed whenever the raw LuxAlgo FVG + Auto condition qualifies.
+- Every selected contract has independent history, bar index, cumulative delta, FVG zones, and per-candle notification state.
+- Consecutive same-direction signals on different candles are allowed whenever the raw LuxAlgo FVG + Auto condition qualifies.
 
 ## 9. Known parity boundary — not yet proven
 
