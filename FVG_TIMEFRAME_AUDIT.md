@@ -116,14 +116,13 @@ Supported chart intervals are 1m, 5m, 15m, 30m, 1h, and 2h. The initial default 
 TradingView's published intraday-history description states that the 5,000-bar limit is supplemented by bars back to the start of a calendar week, month, or year depending on the chart interval:
 - https://www.tradingview.com/support/solutions/43000480679-historical-intraday-data-bars-and-limits-explained/
 
-JAVAD models the 5,000-bar lookback and then aligns its start to the corresponding boundary:
-- 1–14 minute intervals: beginning of week.
-- 15–29 minute intervals: beginning of month.
-- 30–1439 minute intervals: beginning of year.
+For the active 5-minute BTCUSDT.P comparison, JAVAD now uses the fixed user-confirmed start:
+- 2026-11-09 00:00:00 UTC.
+- That candle is explicitly required to be the first completed Toobit candle returned; otherwise history loading fails instead of silently shifting the dataset.
+- It is Pine-style `bar_index = 0`; the cumulative Auto Threshold starts from zero at this same boundary.
+- The candle opening at 2026-11-12 13:05 UTC is 1,021 five-minute intervals later and therefore has `bar_index = 1021` when no candles are missing.
 
-For the current 5-minute comparison, the user identified 2026-11-09 00:00 UTC as the first candle. The candle opening at 2026-11-12 13:05 UTC is 1,021 five-minute intervals after that start. If the TradingView and JAVAD datasets both begin at that candle, that signal candle has Pine-style `bar_index = 1021`.
-
-The first candle returned by the Toobit history loader is used as index 0 and the Auto Threshold cumulative sum starts from that dataset boundary. This is only numerically equivalent to TradingView if both data sets have the same first candle and the same OHLC values throughout the history.
+Other supported intervals retain the Basic-plan 5,000-bar/calendar-boundary approximation. The 5-minute anchor is fixed and does not roll forward with time. Exact numerical parity still requires identical OHLC values throughout the history, not just a matching start timestamp.
 
 ## 8. Live updates, close handling, and data gaps
 
@@ -132,7 +131,7 @@ The first candle returned by the Toobit history loader is used as index 0 and th
 - Duplicate updates for the same candle do not commit cumulative values twice.
 - Missing or out-of-order candles invalidate the affected symbol's processor; analysis must be warmed up again from REST history before continuing.
 - Every selected contract has independent history, bar index, cumulative delta, FVG zones, and last delivered direction.
-- Signal delivery is at most once per candle. Repeated same-direction signals are suppressed until a qualifying signal in the opposite direction appears.
+- Signal delivery is at most once per candle. Consecutive same-direction signals on different candles are allowed whenever the raw LuxAlgo FVG + Auto condition qualifies.
 
 ## 9. Known parity boundary — not yet proven
 
