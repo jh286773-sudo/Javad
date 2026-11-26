@@ -25,6 +25,10 @@ data class MonitoringDashboardState(
     val activeTimeframe: AnalysisTimeframe
         get() = settings.selectedTimeframe
 
+    /** Text shown on the single central monitoring toggle button. */
+    val monitoringButtonText: String
+        get() = if (monitoringEnabled) "خاموش" else "روشن"
+
     val selectedSymbols: List<String>
         get() = settings.symbols.sorted()
 
