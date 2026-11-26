@@ -44,20 +44,25 @@ data class Signal(
  * Stateful port of LuxAlgo SMC's FVG/Auto Threshold calculation in
  * Timeframe = Chart mode. The Auto Threshold denominator is Pine's chart
  * bar_index, not the number of bars in a locally fetched page. When processing
- * a partial history window, pass its true first chart bar_index; for a complete
- * exchange history beginning at its first available candle, use zero. Call once
+ * a partial history window, pass both its true first chart bar_index and the
+ * cumulative absolute delta from all earlier chart bars. For a complete exchange
+ * history beginning at its first available candle, both values are zero. Call once
  * for every chart bar, including bars where Pine history references are na.
  */
 class LuxAlgoFvgAutoCalculator(
     private val autoThresholdEnabled: Boolean = true,
-    firstChartBarIndex: Long = 0L
+    firstChartBarIndex: Long = 0L,
+    initialCumulativeAbsoluteDelta: Double = 0.0
 ) {
     init {
         require(firstChartBarIndex >= 0L) { "firstChartBarIndex must not be negative" }
+        require(initialCumulativeAbsoluteDelta.isFinite() && initialCumulativeAbsoluteDelta >= 0.0) {
+            "initialCumulativeAbsoluteDelta must be finite and non-negative"
+        }
     }
 
     private var chartBarIndex: Long = firstChartBarIndex
-    private var cumulativeAbsoluteDelta: Double = 0.0
+    private var cumulativeAbsoluteDelta: Double = initialCumulativeAbsoluteDelta
 
     fun evaluate(input: FvgInput): FvgEvaluation {
         val values = listOf(
@@ -113,9 +118,14 @@ class LuxAlgoFvgAutoCalculator(
 class LuxAlgoFvgAutoProcessor(
     private val timeframe: AnalysisTimeframe,
     autoThresholdEnabled: Boolean = true,
-    firstChartBarIndex: Long = 0L
+    firstChartBarIndex: Long = 0L,
+    initialCumulativeAbsoluteDelta: Double = 0.0
 ) {
-    private val calculator = LuxAlgoFvgAutoCalculator(autoThresholdEnabled, firstChartBarIndex)
+    private val calculator = LuxAlgoFvgAutoCalculator(
+        autoThresholdEnabled,
+        firstChartBarIndex,
+        initialCumulativeAbsoluteDelta
+    )
     private val recentCandles = mutableListOf<MarketCandle>()
     private val expectedIntervalMillis = when (timeframe) {
         AnalysisTimeframe.ONE_MINUTE -> 60_000L
