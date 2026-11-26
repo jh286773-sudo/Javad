@@ -16,7 +16,9 @@ data class TimeframeSignal(
  * Coordinates selected-timeframe analysis for all selected contracts.
  *
  * The caller must subscribe ToobitKlineStream with settings.selectedTimeframe
- * and initialize each selected symbol with its complete available REST history
+ * and initialize each selected symbol with its complete available REST history.
+ * This selected interval is the LuxAlgo chart timeframe; FVG uses Chart mode
+ * (`fvg_tf = ""`), never an independent FVG interval.
  * before forwarding stream updates. Every update to the forming selected-timeframe
  * candle is evaluated intrabar, like a same-timeframe LuxAlgo chart. Preview
  * evaluations use Pine rollback semantics: they do not commit ta.cum or advance
@@ -77,7 +79,7 @@ class SelectedTimeframeAnalysis(
         require(candles.isNotEmpty()) { "Complete Toobit history is required before live analysis" }
 
         val processor = LuxAlgoFvgAutoProcessor(
-            timeframe = settings.selectedTimeframe,
+            chartTimeframe = settings.selectedTimeframe,
             autoThresholdEnabled = autoThresholdEnabled
         )
         processor.processHistory(candles)
