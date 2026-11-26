@@ -122,9 +122,11 @@ Exact numerical parity still requires identical first candle and OHLC values thr
 
 ## 8. Live updates, close handling, and data gaps
 
-- Forming-candle updates are evaluated using preview/rollback semantics.
-- A candle is committed only after the next source candle indicates that it has closed.
-- Duplicate updates for the same candle do not commit cumulative values twice.
+- Forming-candle updates are evaluated using preview/rollback semantics for live FVG-state display only.
+- A forming-candle preview cannot emit a LONG/SHORT signal and cannot consume the once-per-candle alert slot.
+- Signal conditions are checked against the final candle snapshot only after Toobit marks that candle closed (when the next source candle arrives).
+- The closed candle commits the cumulative Auto value, bar_index, and FVG arrays exactly once.
+- Duplicate or stale updates for the same candle do not commit cumulative values twice or emit duplicate signals.
 - Missing or out-of-order candles invalidate the affected symbol's processor; analysis must be warmed up again from REST history before continuing.
 - Every selected contract has independent history, bar index, cumulative delta, FVG zones, and last delivered direction.
 - Signal delivery is at most once per candle. Consecutive same-direction signals on different candles are allowed whenever the raw LuxAlgo FVG + Auto condition qualifies.
