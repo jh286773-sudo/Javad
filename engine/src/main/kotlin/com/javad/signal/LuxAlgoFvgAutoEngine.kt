@@ -52,24 +52,16 @@ data class Signal(
  * Auto Threshold mirrors:
  * ta.cum(math.abs(change_tf ? delta_per : 0)) / bar_index * 2
  *
- * For a partial history window, provide the true first chart bar_index and
- * cumulative absolute delta immediately before its first candle. Exact
- * TradingView numerical parity still requires identical source history/OHLC.
+ * The first candle in the Toobit history supplied to Javad is bar_index 0,
+ * exactly as Pine numbers the first candle in its loaded chart dataset. The
+ * cumulative absolute delta also starts at zero for that dataset.
  */
 class LuxAlgoFvgAutoCalculator(
-    private val autoThresholdEnabled: Boolean = true,
-    firstChartBarIndex: Long = 0L,
-    initialCumulativeAbsoluteDelta: Double = 0.0
+    private val autoThresholdEnabled: Boolean = true
 ) {
-    init {
-        require(firstChartBarIndex >= 0L) { "firstChartBarIndex must not be negative" }
-        require(initialCumulativeAbsoluteDelta.isFinite() && initialCumulativeAbsoluteDelta >= 0.0) {
-            "initialCumulativeAbsoluteDelta must be finite and non-negative"
-        }
-    }
-
-    private var chartBarIndex: Long = firstChartBarIndex
-    private var cumulativeAbsoluteDelta: Double = initialCumulativeAbsoluteDelta
+    // Pine bar_index starts at zero on the first candle in the loaded dataset.
+    private var chartBarIndex: Long = 0L
+    private var cumulativeAbsoluteDelta: Double = 0.0
 
     /** Evaluate a live chart-bar update using Pine realtime rollback semantics. */
     fun preview(input: FvgInput): FvgEvaluation = calculate(input, commit = false)
@@ -141,15 +133,9 @@ class LuxAlgoFvgAutoCalculator(
  */
 class LuxAlgoFvgAutoProcessor(
     private val chartTimeframe: AnalysisTimeframe,
-    autoThresholdEnabled: Boolean = true,
-    firstChartBarIndex: Long = 0L,
-    initialCumulativeAbsoluteDelta: Double = 0.0
+    autoThresholdEnabled: Boolean = true
 ) {
-    private val calculator = LuxAlgoFvgAutoCalculator(
-        autoThresholdEnabled,
-        firstChartBarIndex,
-        initialCumulativeAbsoluteDelta
-    )
+    private val calculator = LuxAlgoFvgAutoCalculator(autoThresholdEnabled)
     private val recentCandles = mutableListOf<MarketCandle>()
     private val expectedIntervalMillis = chartTimeframe.durationMillis
 
