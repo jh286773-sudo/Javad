@@ -120,7 +120,7 @@ class ToobitMarketDataClient(
 
         val completed = sourceCandles
             .distinctBy { it.openTime }
-            .filter { it.openTime + sourceDuration <= serverTime }
+            .filter { it.openTime + sourceDuration <= minOf(serverTime, endTimeMillis) }
             .sortedBy { it.openTime }
 
         completed.zipWithNext().forEach { (previous, next) ->
