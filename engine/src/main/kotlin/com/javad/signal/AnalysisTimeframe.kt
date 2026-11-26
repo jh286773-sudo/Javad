@@ -26,7 +26,7 @@ enum class AnalysisTimeframe(
  * this class validates selections but does not invent or hardcode that list.
  */
 data class AnalysisSettings(
-    val selectedTimeframe: AnalysisTimeframe = AnalysisTimeframe.FIFTEEN_MINUTES,
+    val selectedTimeframe: AnalysisTimeframe = AnalysisTimeframe.FIVE_MINUTES,
     val symbols: Set<String> = emptySet()
 ) {
     fun selectTimeframe(timeframe: AnalysisTimeframe): AnalysisSettings =
