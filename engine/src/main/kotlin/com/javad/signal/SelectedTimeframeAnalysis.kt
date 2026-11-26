@@ -3,7 +3,8 @@ package com.javad.signal
 /**
  * A LuxAlgo FVG alert condition delivered at most once per source candle.
  * Intrabar evaluation remains live; repeated updates in the same candle do
- * not produce duplicate notifications. Same-direction levels are suppressed until a qualifying opposite level appears.
+ * not produce duplicate notifications. Same-direction signals across candles
+ * are allowed whenever the LuxAlgo FVG + Auto condition is met.
  */
 data class TimeframeSignal(
     val symbol: String,
@@ -49,8 +50,6 @@ class SelectedTimeframeAnalysis(
     private val lastProcessedOpenTime = mutableMapOf<String, Long>()
     private val latestFvgStates = mutableMapOf<String, FvgStateUpdate>()
     private val lastEmittedSignalOpenTime = mutableMapOf<String, Long>()
-    // Same-side levels stay suppressed until a qualifying opposite level appears.
-    private val lastEmittedDirection = mutableMapOf<String, FvgDirection>()
 
     @Synchronized
     fun currentSettings(): AnalysisSettings = settings
@@ -72,14 +71,12 @@ class SelectedTimeframeAnalysis(
             lastProcessedOpenTime.clear()
             latestFvgStates.clear()
             lastEmittedSignalOpenTime.clear()
-            lastEmittedDirection.clear()
         } else {
             removedSymbols.forEach { symbol ->
                 processors.remove(symbol)
                 lastProcessedOpenTime.remove(symbol)
                 latestFvgStates.remove(symbol)
                 lastEmittedSignalOpenTime.remove(symbol)
-                lastEmittedDirection.remove(symbol)
             }
         }
     }
@@ -167,15 +164,14 @@ class SelectedTimeframeAnalysis(
             lastProcessedOpenTime[normalized] = update.candle.openTime
         }
 
-        // Evaluate the raw source condition on every update, but deliver at
-        // most one notification for this candle. Same-side levels remain
-        // suppressed across candles until an opposite side is detected.
+        // Evaluate the raw source condition on every update. Permit consecutive
+        // same-direction signals on different candles; only suppress duplicate
+        // deliveries for the same candle.
         if (evaluation.bullishFvg == evaluation.bearishFvg) return null
         if (lastEmittedSignalOpenTime[normalized] == update.candle.openTime) return null
         val delta = evaluation.deltaPercent ?: return null
         val threshold = evaluation.autoThreshold ?: return null
         val direction = if (evaluation.bullishFvg) FvgDirection.LONG else FvgDirection.SHORT
-        if (lastEmittedDirection[normalized] == direction) return null
 
         val signal = Signal(
             direction = direction,
@@ -184,7 +180,6 @@ class SelectedTimeframeAnalysis(
             autoThreshold = threshold
         )
         lastEmittedSignalOpenTime[normalized] = update.candle.openTime
-        lastEmittedDirection[normalized] = direction
         return TimeframeSignal(
             symbol = normalized,
             timeframe = settings.selectedTimeframe,
@@ -211,6 +206,5 @@ class SelectedTimeframeAnalysis(
         lastProcessedOpenTime.remove(symbol)
         latestFvgStates.remove(symbol)
         lastEmittedSignalOpenTime.remove(symbol)
-        lastEmittedDirection.remove(symbol)
     }
 }
