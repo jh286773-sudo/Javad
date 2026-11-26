@@ -120,9 +120,12 @@ class ToobitKlineStream(
                 close = item.path("c").asDouble(),
                 volume = item.path("v").asDouble()
             )
-            if (candle.openTime <= 0L || !listOf(
-                    candle.open, candle.high, candle.low, candle.close, candle.volume
-                ).all { it.isFinite() }) return@forEach
+            if (candle.openTime <= 0L ||
+                !listOf(candle.open, candle.high, candle.low, candle.close, candle.volume).all { it.isFinite() } ||
+                candle.open <= 0.0 || candle.high <= 0.0 || candle.low <= 0.0 || candle.close <= 0.0 ||
+                candle.volume < 0.0 || candle.high < maxOf(candle.open, candle.close) ||
+                candle.low > minOf(candle.open, candle.close) || candle.high < candle.low
+            ) return@forEach
 
             if (timeframe == AnalysisTimeframe.FORTY_FIVE_MINUTES) {
                 processFortyFiveMinute(javadSymbol, candle)
