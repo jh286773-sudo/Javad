@@ -1,9 +1,9 @@
 package com.javad.signal
 
 /**
- * A raw LuxAlgo FVG alert condition at the exact Toobit candle snapshot where
- * the source condition is currently true. The callback is not deduplicated:
- * alert frequency is a delivery-layer choice, not an extra strategy rule.
+ * A LuxAlgo FVG alert condition delivered at most once per source candle.
+ * Intrabar evaluation remains live; repeated updates in the same candle do
+ * not produce duplicate notifications. A later candle may emit the same side.
  */
 data class TimeframeSignal(
     val symbol: String,
@@ -26,9 +26,9 @@ data class TimeframeSignal(
  * during the live candle. Only the final candle snapshot commits ta.cum,
  * bar_index, and FVG box arrays.
  *
- * No extra same-direction, per-candle, color-level, or trend filter is applied
- * to the source FVG alert conditions. Every update for which the raw
- * bullish_fvg_cnd or bearish_fvg_cnd is true is surfaced to the caller.
+ * The raw bullish_fvg_cnd/bearish_fvg_cnd conditions are evaluated on every
+ * live update. Delivery is limited to the first qualifying update per candle,
+ * matching a once-per-bar notification policy without changing FVG detection.
  *
  * Numbering follows Pine's chart dataset: the earliest candle returned by
  * Toobit's history request is bar_index 0; each subsequent candle gets the
@@ -48,6 +48,7 @@ class SelectedTimeframeAnalysis(
     private val processors = mutableMapOf<String, LuxAlgoFvgAutoProcessor>()
     private val lastProcessedOpenTime = mutableMapOf<String, Long>()
     private val latestFvgStates = mutableMapOf<String, FvgStateUpdate>()
+    private val lastEmittedSignalOpenTime = mutableMapOf<String, Long>()
 
     @Synchronized
     fun currentSettings(): AnalysisSettings = settings
@@ -68,11 +69,13 @@ class SelectedTimeframeAnalysis(
             processors.clear()
             lastProcessedOpenTime.clear()
             latestFvgStates.clear()
+            lastEmittedSignalOpenTime.clear()
         } else {
             removedSymbols.forEach { symbol ->
                 processors.remove(symbol)
                 lastProcessedOpenTime.remove(symbol)
                 latestFvgStates.remove(symbol)
+                lastEmittedSignalOpenTime.remove(symbol)
             }
         }
     }
@@ -101,6 +104,7 @@ class SelectedTimeframeAnalysis(
 
         processors[normalized] = processor
         lastProcessedOpenTime[normalized] = candles.last().openTime
+        lastEmittedSignalOpenTime.remove(normalized)
         historyEvaluations.lastOrNull()?.fvgState?.let { latestFvgStates[normalized] = it }
     }
 
@@ -159,9 +163,11 @@ class SelectedTimeframeAnalysis(
             lastProcessedOpenTime[normalized] = update.candle.openTime
         }
 
-        // This is the source's alertcondition boolean, not a custom signal
-        // suppression policy. The caller receives it whenever it is true.
+        // Evaluate the raw source condition on every update, but deliver at
+        // most one notification for this candle. This does not suppress the
+        // same direction on later candles.
         if (evaluation.bullishFvg == evaluation.bearishFvg) return null
+        if (lastEmittedSignalOpenTime[normalized] == update.candle.openTime) return null
         val delta = evaluation.deltaPercent ?: return null
         val threshold = evaluation.autoThreshold ?: return null
         val signal = Signal(
@@ -170,6 +176,7 @@ class SelectedTimeframeAnalysis(
             deltaPercent = delta,
             autoThreshold = threshold
         )
+        lastEmittedSignalOpenTime[normalized] = update.candle.openTime
         return TimeframeSignal(
             symbol = normalized,
             timeframe = settings.selectedTimeframe,
@@ -195,5 +202,6 @@ class SelectedTimeframeAnalysis(
         processors.remove(symbol)
         lastProcessedOpenTime.remove(symbol)
         latestFvgStates.remove(symbol)
+        lastEmittedSignalOpenTime.remove(symbol)
     }
 }
