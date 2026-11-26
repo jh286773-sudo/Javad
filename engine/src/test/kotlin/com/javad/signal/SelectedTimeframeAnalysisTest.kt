@@ -55,6 +55,52 @@ class SelectedTimeframeAnalysisTest {
     }
 
     @Test
+    fun repeatedSameDirectionIsSuppressedUntilAnOppositeSignalAppears() {
+        val symbol = "BTCUSDT.P"
+        val timeframe = AnalysisTimeframe.FIVE_MINUTES
+        val interval = timeframe.durationMillis
+        val start = alignedStart(timeframe)
+        val analysis = SelectedTimeframeAnalysis(
+            AnalysisSettings(timeframe, setOf(symbol))
+        )
+        analysis.loadHistory(
+            symbol,
+            listOf(
+                candle(100.0, 100.0, 105.0, 95.0, start),
+                candle(200.0, 200.0, 210.0, 190.0, start + interval),
+                candle(200.0, 215.0, 220.0, 195.0, start + 2L * interval)
+            )
+        )
+
+        val firstLong = candle(230.0, 299.0, 300.0, 230.0, start + 3L * interval)
+        assertEquals(
+            FvgDirection.LONG,
+            analysis.onCandleUpdate(
+                ToobitCandleUpdate(symbol, firstLong, isClosed = true, timeframe = timeframe)
+            )?.signal?.direction
+        )
+
+        // This candle also satisfies the bullish source formula, but the
+        // same-side level is not delivered again.
+        val repeatedLong = candle(500.0, 226.0, 500.0, 225.0, start + 4L * interval)
+        assertNull(
+            analysis.onCandleUpdate(
+                ToobitCandleUpdate(symbol, repeatedLong, isClosed = true, timeframe = timeframe)
+            )
+        )
+
+        // The next candle satisfies the bearish source formula and re-arms
+        // delivery by changing the last emitted direction.
+        val oppositeShort = candle(220.0, 210.0, 220.0, 205.0, start + 5L * interval)
+        assertEquals(
+            FvgDirection.SHORT,
+            analysis.onCandleUpdate(
+                ToobitCandleUpdate(symbol, oppositeShort, isClosed = true, timeframe = timeframe)
+            )?.signal?.direction
+        )
+    }
+
+    @Test
     fun timeframeChangeClearsOldHistoryAndRejectsOldStreamInterval() {
         val symbol = "BTCUSDT.P"
         val analysis = SelectedTimeframeAnalysis(
