@@ -11,6 +11,7 @@ kotlin {
 }
 
 dependencies {
+    implementation("com.fasterxml.jackson.core:jackson-databind:2.18.2")
     testImplementation(kotlin("test-junit5"))
     testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.10.2")
 }
