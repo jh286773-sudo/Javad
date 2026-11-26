@@ -4,7 +4,7 @@ JAVAD is an Android-focused signal application for Toobit USDT-margined perpetua
 
 ## Current repository contents
 
-- `engine/`: Kotlin/JVM signal engine, FVG + Auto Threshold calculation, selected-timeframe intrabar analysis with Pine-style rollback, Toobit public market-data client and kline stream, shared analysis settings, monitoring recovery policy, and `ToobitSignalMonitor` lifecycle coordinator.
+- `engine/`: Kotlin/JVM signal engine, FVG + Auto Threshold calculation, selected-timeframe intrabar analysis with Pine-style rollback, Toobit public market-data client and kline stream, shared analysis settings, monitoring recovery policy, `ToobitSignalMonitor` lifecycle coordinator, and `JavadSignalRuntime` public entry point for application integration.
 - `.github/workflows/engine-tests.yml`: engine test workflow for pushes and pull requests to `main`.
 
 ## Confirmed product constraints
@@ -19,7 +19,7 @@ JAVAD is an Android-focused signal application for Toobit USDT-margined perpetua
 
 ## Important implementation status
 
-The repository currently contains the Kotlin/JVM engine and tests, including a Toobit monitor coordinator that loads history before connecting the live stream and reloads a symbol after a detected candle gap. It is **not yet a complete installable Android app**. The Android Compose UI, Android foreground monitoring service and boot recovery integration, persistent settings wiring, and approved floating LONG/SHORT notification still need implementation and device verification.
+The repository currently contains the Kotlin/JVM engine and tests, including an integrated `JavadSignalRuntime` entry point. It loads Toobit history before connecting the live stream and reloads a symbol after a detected candle gap. It is **not yet a complete installable Android app**. The Android application layer must instantiate `JavadSignalRuntime`, call `start()` on a background executor, route `onSignal` to the approved floating LONG/SHORT notification, persist settings, and connect the foreground monitoring service and boot/network recovery policy. The Android Compose UI, Android adapters, and device verification still need implementation.
 
 The LuxAlgo-derived calculation carries the attribution and CC BY-NC-SA 4.0 notice in [engine/NOTICE.md](engine/NOTICE.md). The adapted code must retain that notice and is marked non-commercial under that license.
 
