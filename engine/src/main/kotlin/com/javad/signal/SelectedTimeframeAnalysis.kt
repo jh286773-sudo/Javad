@@ -1,9 +1,9 @@
 package com.javad.signal
 
 /**
- * A signal tied to the exact Toobit source interval and completed candle that
- * produced it. The candle close is available to the notification layer as the
- * signal-time price.
+ * A signal tied to the exact Toobit source interval and candle snapshot that
+ * first satisfied the FVG condition. The snapshot may be intrabar; its close
+ * field is the latest traded price in that update.
  */
 data class TimeframeSignal(
     val symbol: String,
@@ -17,9 +17,11 @@ data class TimeframeSignal(
  *
  * The caller must subscribe ToobitKlineStream with settings.selectedTimeframe
  * and initialize each selected symbol with its complete available REST history
- * before forwarding stream updates. This preserves LuxAlgo's cumulative Auto
- * Threshold and chart bar_index. Open candles are ignored; only updates marked
- * closed by the stream are evaluated.
+ * before forwarding stream updates. Every update to the forming selected-timeframe
+ * candle is evaluated intrabar, like a same-timeframe LuxAlgo chart. Preview
+ * evaluations use Pine rollback semantics: they do not commit ta.cum or advance
+ * bar_index. A valid event is emitted at most once per candle (once-per-bar);
+ * the completed candle is committed exactly once.
  *
  * Changing timeframe invalidates every processor: the caller must reload
  * complete history and reconnect the stream at the new interval before
@@ -87,8 +89,9 @@ class SelectedTimeframeAnalysis(
     }
 
     /**
-     * Evaluates only a completed candle from the currently selected interval.
-     * A detected gap invalidates the processor until REST backfill is loaded.
+     * Evaluates each live snapshot intrabar and commits the final snapshot when
+     * the stream marks that candle closed. A detected gap invalidates the
+     * processor until REST backfill is loaded.
      */
     @Synchronized
     fun onCandleUpdate(update: ToobitCandleUpdate): TimeframeSignal? {
