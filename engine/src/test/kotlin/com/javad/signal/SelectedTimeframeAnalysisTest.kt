@@ -37,6 +37,12 @@ class SelectedTimeframeAnalysisTest {
             assertEquals(timeframe, intrabarResult?.timeframe)
             assertEquals(FvgDirection.LONG, intrabarResult?.signal?.direction)
             assertEquals(liveCandle.openTime, intrabarResult?.candle?.openTime)
+            assertNull(
+                analysis.onCandleUpdate(
+                    ToobitCandleUpdate(symbol, liveCandle, isClosed = false, timeframe = timeframe)
+                ),
+                "A second qualifying update in the same candle must not duplicate the alert"
+            )
 
             // Closing the same candle commits its cumulative contribution but
             // must not send a second once-per-bar notification.
