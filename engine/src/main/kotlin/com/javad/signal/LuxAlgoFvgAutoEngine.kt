@@ -213,18 +213,16 @@ class LuxAlgoFvgAutoProcessor(
         removed += removedBearish
 
         val formed = mutableListOf<FvgZone>()
-        val midpointBullish = if (base.bullishFvg) {
-            (candle.low + input.highTwoBarsAgo!!) / 2.0
-        } else null
         if (base.bullishFvg) {
             val oldHigh = input.highTwoBarsAgo!!
+            val midpoint = (candle.low + oldHigh) / 2.0
             formed += FvgZone(
                 direction = FvgDirection.LONG,
                 chartBarIndex = base.chartBarIndex,
                 leftBarIndex = base.chartBarIndex - 1L,
                 rightBarIndex = base.chartBarIndex + fvgExtend,
-                maxBox = FvgBox(top = candle.low, bottom = midpointBullish!!),
-                minBox = FvgBox(top = midpointBullish, bottom = oldHigh)
+                maxBox = FvgBox(top = candle.low, bottom = midpoint),
+                minBox = FvgBox(top = midpoint, bottom = oldHigh)
             )
         }
 
@@ -241,21 +239,22 @@ class LuxAlgoFvgAutoProcessor(
             )
         }
 
-        val resultingZones = nextBullish + formed.filter { it.direction == FvgDirection.LONG } +
-            nextBearish + formed.filter { it.direction == FvgDirection.SHORT }
+        // array.unshift() in the Pine source: newest FVG is first in each array.
+        val formedBullish = formed.filter { it.direction == FvgDirection.LONG }
+        val formedBearish = formed.filter { it.direction == FvgDirection.SHORT }
+        nextBullish.addAll(0, formedBullish)
+        nextBearish.addAll(0, formedBearish)
         val state = FvgStateUpdate(
-            activeZones = resultingZones,
+            activeZones = nextBullish + nextBearish,
             formedZones = formed,
             removedZones = removed
         )
 
         if (commit) {
             bullishZones.clear()
-            bullishZones += nextBullish
+            bullishZones.addAll(nextBullish)
             bearishZones.clear()
-            bearishZones += nextBearish
-            formed.filter { it.direction == FvgDirection.LONG }.forEach(bullishZones::add)
-            formed.filter { it.direction == FvgDirection.SHORT }.forEach(bearishZones::add)
+            bearishZones.addAll(nextBearish)
             recentCandles += candle
             if (recentCandles.size > 2) recentCandles.removeAt(0)
         }
