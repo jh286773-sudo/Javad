@@ -27,6 +27,11 @@ class AnalysisSettingsTest {
     }
 
     @Test
+    fun exposesTheApprovedSingleTimeframeChoicesIncludingFortyFiveMinutes() {
+        assertEquals(listOf("1m", "5m", "15m", "30m", "45m", "1h", "2h"), AnalysisTimeframe.entries.map { it.apiInterval })
+    }
+
+    @Test
     fun addingAndRemovingSymbolsDoesNotChangeSelectedTimeframe() {
         val settings = AnalysisSettings()
             .selectTimeframe(AnalysisTimeframe.ONE_HOUR)
