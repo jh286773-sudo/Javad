@@ -27,15 +27,15 @@ class MonitoringDashboardStateTest {
     }
 
     @Test
-    fun monitoringButtonShowsOnlyOnOrOffBasedOnMonitoringState() {
+    fun monitoringButtonShowsExactApprovedLabelsBasedOnMonitoringState() {
         val stopped = MonitoringDashboardState()
-        assertEquals("روشن", stopped.monitoringButtonText)
+        assertEquals("تحلیل خاموش", stopped.monitoringButtonText)
 
         val running = stopped.setMonitoringEnabled(true)
-        assertEquals("خاموش", running.monitoringButtonText)
+        assertEquals("تحلیل روشن", running.monitoringButtonText)
 
         val stoppedAgain = running.setMonitoringEnabled(false)
-        assertEquals("روشن", stoppedAgain.monitoringButtonText)
+        assertEquals("تحلیل خاموش", stoppedAgain.monitoringButtonText)
     }
 
     @Test
