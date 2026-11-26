@@ -11,7 +11,7 @@ JAVAD is an Android-focused signal application for Toobit USDT-margined perpetua
 
 - Market: Toobit USDT-margined perpetual contracts only; JAVAD symbols use the `.P` suffix (for example, `BTCUSDT.P`).
 - Strategy: FVG + Auto Threshold only. Do not add EMA, RSI, ICT, or alternative strategies.
-- One shared timeframe for all selected symbols: 1m, 5m, 15m, 30m, 1h, or 2h. The selected interval is used for both Toobit REST history and the matching WebSocket kline topic; live candle updates are evaluated intrabar and each candle is committed once on close.
+- One shared chart timeframe for all selected symbols: 1m, 5m, 15m, 30m, 1h, or 2h. LuxAlgo FVG is explicitly in Chart mode (`fvg_tf = ""`), so FVG OHLC, `timeframe.change`, Toobit REST history, and the matching WebSocket kline topic all use this same selected interval; there is no independent FVG timeframe. Live candle updates are evaluated intrabar and each candle is committed once on close.
 - No API key is used for public market data; no order-placement/trading endpoints are part of the signal engine.
 - Emit every valid FVG + Auto event, including consecutive events in the same direction; keep each symbol's analysis state independent.
 - Keep development on the single `main` branch.
