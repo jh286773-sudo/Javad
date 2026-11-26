@@ -91,7 +91,7 @@ class ToobitMarketDataClient(
 
         val contract = findContract(javadSymbol)
         val sourceInterval = timeframe.apiInterval
-        val sourceDuration = intervalMillis(sourceInterval)
+        val sourceDuration = timeframe.durationMillis
         val serverTime = getServerTimeMillis()
         val sourceCandles = mutableListOf<MarketCandle>()
         var cursor = startTimeMillis
@@ -202,16 +202,5 @@ class ToobitMarketDataClient(
 
     private fun encode(value: String): String =
         URLEncoder.encode(value, StandardCharsets.UTF_8)
-
-    private fun intervalMillis(interval: String): Long = when (interval) {
-        "1m" -> 60_000L
-        "5m" -> 5 * 60_000L
-        "15m" -> 15 * 60_000L
-        "30m" -> 30 * 60_000L
-        "45m" -> 45 * 60_000L
-        "1h" -> 60 * 60_000L
-        "2h" -> 2 * 60 * 60_000L
-        else -> throw IllegalArgumentException("Unsupported Toobit source interval: $interval")
-    }
 
 }
