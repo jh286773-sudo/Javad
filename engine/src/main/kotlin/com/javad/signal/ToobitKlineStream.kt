@@ -208,7 +208,7 @@ class ToobitKlineStream(
                 candle.openTime < previous.openTime -> return
                 candle.openTime == previous.openTime -> {
                     previousBySymbol[symbol] = candle
-                    updates += ToobitCandleUpdate(symbol, candle, false)
+                    updates += ToobitCandleUpdate(symbol, candle, false, timeframe = timeframe)
                 }
                 else -> {
                     val gap = candle.openTime - previous.openTime != timeframe.durationMillis
