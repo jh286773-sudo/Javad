@@ -24,6 +24,29 @@ class LuxAlgoFvgAutoEngineTest {
         assertTrue(fourth.bullishFvg)
     }
 
+
+    @Test
+    fun autoThresholdAccumulatesAbsoluteNegativeAndPositiveDeltas() {
+        val calculator = LuxAlgoFvgAutoCalculator(autoThresholdEnabled = true)
+        calculator.evaluate(input(open = 100.0, close = 101.0))
+        val second = calculator.evaluate(input(open = 100.0, close = 99.0))
+
+        // |+1%| + |-1%|, divided by bar_index 1, then multiplied by 2.
+        assertEquals(4.0, second.autoThreshold!!, 1e-9)
+    }
+
+    @Test
+    fun bearishFvgUsesPreviousCandleDeltaAndTwoBarsAgoLow() {
+        val calculator = LuxAlgoFvgAutoCalculator(autoThresholdEnabled = false)
+        val result = calculator.evaluate(
+            input(open = 100.0, close = 94.0).copy(
+                currentHigh = 95.0,
+                lowTwoBarsAgo = 96.0
+            )
+        )
+        assertTrue(result.bearishFvg)
+    }
+
     @Test
     fun disabledAutoThresholdUsesZeroInChartMode() {
         val calculator = LuxAlgoFvgAutoCalculator(autoThresholdEnabled = false)
