@@ -15,19 +15,24 @@ data class TimeframeSignal(
 /**
  * Coordinates selected-timeframe analysis for all selected contracts.
  *
- * The caller must subscribe ToobitKlineStream with settings.selectedTimeframe
- * and initialize each selected symbol with its complete available REST history.
- * This selected interval is the LuxAlgo chart timeframe; FVG uses Chart mode
+ * The caller subscribes ToobitKlineStream with settings.selectedTimeframe and
+ * seeds each selected symbol with ascending, gap-free Toobit history. This
+ * selected interval is the LuxAlgo chart timeframe; FVG uses Chart mode
  * (`fvg_tf = ""`), never an independent FVG interval.
- * before forwarding stream updates. Every update to the forming selected-timeframe
- * candle is evaluated intrabar, like a same-timeframe LuxAlgo chart. Preview
- * evaluations use Pine rollback semantics: they do not commit ta.cum or advance
- * bar_index. A valid event is emitted at most once per candle (once-per-bar);
- * the completed candle is committed exactly once.
  *
- * Changing timeframe invalidates every processor: the caller must reload
- * complete history and reconnect the stream at the new interval before
- * analysis resumes. No candles from different intervals can be mixed.
+ * Every update to the forming chart candle is evaluated intrabar. Preview
+ * evaluations use Pine realtime rollback semantics: they calculate from the
+ * last committed ta.cum value and do not advance bar_index. The final candle
+ * snapshot is committed exactly once when Toobit reports it closed.
+ *
+ * The history anchor parameters on loadHistory allow the caller to align
+ * bar_index and ta.cum with a known Pine chart-history starting point. If no
+ * external chart anchor is supplied, the first Toobit candle is bar_index 0
+ * and the cumulative sum starts at zero. Exact TradingView parity therefore
+ * requires identical chart history and OHLC data, not merely the same interval.
+ *
+ * Changing timeframe invalidates every processor. The caller must reload
+ * history and reconnect the stream at the new interval before analysis resumes.
  */
 class SelectedTimeframeAnalysis(
     initialSettings: AnalysisSettings,
@@ -70,17 +75,29 @@ class SelectedTimeframeAnalysis(
     }
 
     /**
-     * Seeds one contract from its full, ascending, gap-free REST history.
-     * Historical bars warm the LuxAlgo calculation but do not emit alerts.
+     * Seeds one contract from ascending, gap-free Toobit history.
+     *
+     * firstChartBarIndex and initialCumulativeAbsoluteDelta are the Pine
+     * history anchor: bar_index at the first supplied candle and ta.cum's
+     * absolute-delta sum immediately before that candle. Leave them at zero
+     * when the supplied history is the beginning of the chart dataset.
+     * Historical bars warm the calculation but do not emit alerts.
      */
     @Synchronized
-    fun loadHistory(symbol: String, candles: List<MarketCandle>) {
+    fun loadHistory(
+        symbol: String,
+        candles: List<MarketCandle>,
+        firstChartBarIndex: Long = 0L,
+        initialCumulativeAbsoluteDelta: Double = 0.0
+    ) {
         val normalized = normalizeSelectedSymbol(symbol)
         require(candles.isNotEmpty()) { "Complete Toobit history is required before live analysis" }
 
         val processor = LuxAlgoFvgAutoProcessor(
             chartTimeframe = settings.selectedTimeframe,
-            autoThresholdEnabled = autoThresholdEnabled
+            autoThresholdEnabled = autoThresholdEnabled,
+            firstChartBarIndex = firstChartBarIndex,
+            initialCumulativeAbsoluteDelta = initialCumulativeAbsoluteDelta
         )
         processor.processHistory(candles)
 
@@ -135,8 +152,8 @@ class SelectedTimeframeAnalysis(
             lastProcessedOpenTime[normalized] = update.candle.openTime
         }
 
-        // LuxAlgo's alertcondition can become true intrabar. Match a once-per-bar
-        // alert: first qualifying update wins, even if the condition later rolls back.
+        // A qualifying intrabar event is latched once per candle, matching a
+        // once-per-bar alert even if the live condition later rolls back.
         if (emittedSignalOpenTime[normalized] == update.candle.openTime) return null
         val signal = signalGates.accept(normalized, evaluation) ?: return null
         emittedSignalOpenTime[normalized] = update.candle.openTime
