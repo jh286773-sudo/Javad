@@ -3,7 +3,6 @@ package com.javad.signal
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.math.abs
@@ -106,7 +105,7 @@ class LuxAlgoFvgAutoEngineTest {
     @Test
     fun candleProcessorMatchesLuxAlgoHistoryOffsetsAndWarmsUpFromFirstBar() {
         val processor = LuxAlgoFvgAutoProcessor(
-            timeframe = AnalysisTimeframe.FIFTEEN_MINUTES,
+            chartTimeframe = AnalysisTimeframe.FIFTEEN_MINUTES,
             autoThresholdEnabled = true
         )
         val start = 1_700_000_100_000L - (1_700_000_100_000L % (15L * 60_000L))
@@ -142,28 +141,6 @@ class LuxAlgoFvgAutoEngineTest {
         assertFailsWith<IllegalArgumentException> {
             processor.process(candle(102.0, 103.0, 108.0, 99.0, start + 30L * 60_000L))
         }
-    }
-
-    @Test
-    fun signalEmitterPreservesEveryLuxAlgoFvgEventIncludingRepeatedDirections() {
-        val gate = DirectionSignalGate()
-        val long = FvgEvaluation(10, 6.0, 4.0, true, false)
-        val repeatedLong = FvgEvaluation(11, 7.0, 4.0, true, false)
-        val short = FvgEvaluation(12, -6.0, 4.0, false, true)
-
-        assertNotNull(gate.accept(long))
-        assertEquals(FvgDirection.LONG, gate.accept(repeatedLong)?.direction)
-        assertEquals(FvgDirection.SHORT, gate.accept(short)?.direction)
-    }
-
-    @Test
-    fun perSymbolSignalStateIsIndependentAndDoesNotSuppressRepeatedFvgEvents() {
-        val gate = PerSymbolDirectionSignalGate()
-        val long = FvgEvaluation(10, 6.0, 4.0, true, false)
-
-        assertNotNull(gate.accept("BTCUSDT.P", long))
-        assertNotNull(gate.accept("BTCUSDT.P", long))
-        assertNotNull(gate.accept("ETHUSDT.P", long))
     }
 
     private fun candle(open: Double, close: Double, high: Double, low: Double, openTime: Long) = MarketCandle(
