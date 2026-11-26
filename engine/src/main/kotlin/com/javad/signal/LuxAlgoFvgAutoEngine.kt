@@ -64,7 +64,13 @@ class LuxAlgoFvgAutoCalculator(
     private var chartBarIndex: Long = firstChartBarIndex
     private var cumulativeAbsoluteDelta: Double = initialCumulativeAbsoluteDelta
 
-    fun evaluate(input: FvgInput): FvgEvaluation {
+    /** Evaluate a live chart-bar update using Pine realtime rollback semantics. */
+    fun preview(input: FvgInput): FvgEvaluation = calculate(input, commit = false)
+
+    /** Commit one completed chart bar to ta.cum and advance bar_index exactly once. */
+    fun evaluate(input: FvgInput): FvgEvaluation = calculate(input, commit = true)
+
+    private fun calculate(input: FvgInput, commit: Boolean): FvgEvaluation {
         val values = listOf(
             input.currentHigh, input.currentLow,
             input.previousOpen, input.previousClose,
@@ -82,14 +88,16 @@ class LuxAlgoFvgAutoCalculator(
             (input.previousClose - input.previousOpen) / input.previousOpen * 100.0
         } else null
 
-        // ta.cum ignores unavailable source values; the first chart bar adds nothing.
-        if (deltaPercent != null) cumulativeAbsoluteDelta += abs(deltaPercent)
+        // Pine rolls realtime executions back to the last confirmed bar.
+        // Each preview therefore uses committed ta.cum + this bar's contribution,
+        // without permanently accumulating the same delta on every websocket tick.
+        val candidateCumulative = cumulativeAbsoluteDelta + (deltaPercent?.let(::abs) ?: 0.0)
 
         // Pine bar_index is zero on the first chart bar.
         val threshold = when {
             !autoThresholdEnabled -> 0.0
             index == 0L -> null
-            else -> cumulativeAbsoluteDelta / index.toDouble() * 2.0
+            else -> candidateCumulative / index.toDouble() * 2.0
         }
 
         val bullish = deltaPercent != null &&
@@ -106,7 +114,10 @@ class LuxAlgoFvgAutoCalculator(
             input.previousClose!! < input.lowTwoBarsAgo &&
             -deltaPercent > threshold
 
-        chartBarIndex += 1L
+        if (commit) {
+            cumulativeAbsoluteDelta = candidateCumulative
+            chartBarIndex += 1L
+        }
         return FvgEvaluation(index, deltaPercent, threshold, bullish, bearish)
     }
 }
@@ -129,7 +140,19 @@ class LuxAlgoFvgAutoProcessor(
     private val recentCandles = mutableListOf<MarketCandle>()
     private val expectedIntervalMillis = timeframe.durationMillis
 
+    /** Re-evaluates the still-forming chart bar without committing ta.cum/bar_index. */
+    fun preview(candle: MarketCandle): FvgEvaluation =
+        calculator.preview(inputFor(candle))
+
+    /** Commits the completed chart bar exactly once. */
     fun process(candle: MarketCandle): FvgEvaluation {
+        val evaluation = calculator.evaluate(inputFor(candle))
+        recentCandles += candle
+        if (recentCandles.size > 2) recentCandles.removeAt(0)
+        return evaluation
+    }
+
+    private fun inputFor(candle: MarketCandle): FvgInput {
         require(candle.openTime > 0L) { "Candle open time must be positive" }
         require(candle.openTime % expectedIntervalMillis == 0L) {
             "Candle open time is not aligned to the Toobit $timeframe interval"
@@ -141,21 +164,14 @@ class LuxAlgoFvgAutoProcessor(
             }
         }
         val twoBarsAgo = recentCandles.getOrNull(recentCandles.lastIndex - 1)
-
-        val evaluation = calculator.evaluate(
-            FvgInput(
-                previousOpen = previous?.open,
-                previousClose = previous?.close,
-                currentHigh = candle.high,
-                currentLow = candle.low,
-                highTwoBarsAgo = twoBarsAgo?.high,
-                lowTwoBarsAgo = twoBarsAgo?.low
-            )
+        return FvgInput(
+            previousOpen = previous?.open,
+            previousClose = previous?.close,
+            currentHigh = candle.high,
+            currentLow = candle.low,
+            highTwoBarsAgo = twoBarsAgo?.high,
+            lowTwoBarsAgo = twoBarsAgo?.low
         )
-
-        recentCandles += candle
-        if (recentCandles.size > 2) recentCandles.removeAt(0)
-        return evaluation
     }
 
     fun processHistory(candles: List<MarketCandle>): List<FvgEvaluation> =
