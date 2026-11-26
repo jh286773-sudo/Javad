@@ -114,9 +114,6 @@ class ToobitKlineStream(
                 volume = item.path("v").asDouble()
             )
             if (timeframe == AnalysisTimeframe.FORTY_FIVE_MINUTES) {
-                // Toobit has no native 45m stream. Keep the source 15m
-                // updates grouped; only expose a completed 45m bar when the
-                // next 45m bucket begins.
                 processFortyFiveMinute(javadSymbol, candle)
             } else {
                 val previous = synchronized(lock) { previousBySymbol.put(javadSymbol, candle) }
@@ -131,48 +128,41 @@ class ToobitKlineStream(
     private val fifteenMinuteBars = mutableMapOf<String, MutableMap<Long, MarketCandle>>()
 
     private fun processFortyFiveMinute(symbol: String, candle: MarketCandle) {
-        val bucket = (candle.openTime / (45L * 60_000L)) * (45L * 60_000L)
+        val duration = 45L * 60_000L
+        val bucket = (candle.openTime / duration) * duration
         synchronized(lock) {
             val bars = fifteenMinuteBars.getOrPut(symbol) { mutableMapOf() }
             bars[candle.openTime] = candle
-            val bucketBars = bars.values.filter {
-                (it.openTime / (45L * 60_000L)) * (45L * 60_000L) == bucket
-            }.sortedBy { it.openTime }
+            val bucketBars = bars.values.filter { (it.openTime / duration) * duration == bucket }
+                .sortedBy { it.openTime }
             if (bucketBars.size == 3) {
-                val aggregate = MarketCandle(
-                    openTime = bucket,
-                    open = bucketBars.first().open,
-                    high = bucketBars.maxOf { it.high },
-                    low = bucketBars.minOf { it.low },
-                    close = bucketBars.last().close,
-                    volume = bucketBars.sumOf { it.volume }
-                )
-                onUpdate(ToobitCandleUpdate(symbol, aggregate, false))
+                onUpdate(ToobitCandleUpdate(symbol, aggregateFortyFive(bucket, bucketBars), false))
             }
-            val completedBuckets = bars.keys.map { (it / (45L * 60_000L)) * (45L * 60_000L) }
-                .distinct().sorted()
+
+            val completedBuckets = bars.keys.map { (it / duration) * duration }.distinct().sorted()
             if (completedBuckets.size > 1) {
                 val finishedBucket = completedBuckets[completedBuckets.lastIndex - 1]
-                val finished = bars.values.filter {
-                    (it.openTime / (45L * 60_000L)) * (45L * 60_000L) == finishedBucket
-                }.sortedBy { it.openTime }
+                val finished = bars.values.filter { (it.openTime / duration) * duration == finishedBucket }
+                    .sortedBy { it.openTime }
                 if (finished.size == 3) {
-                    val finalCandle = MarketCandle(
-                        openTime = finishedBucket,
-                        open = finished.first().open,
-                        high = finished.maxOf { it.high },
-                        low = finished.minOf { it.low },
-                        close = finished.last().close,
-                        volume = finished.sumOf { it.volume }
-                    )
-                    onUpdate(ToobitCandleUpdate(symbol, finalCandle, true))
+                    onUpdate(ToobitCandleUpdate(symbol, aggregateFortyFive(finishedBucket, finished), true))
                 }
-                bars.keys.removeIf {
-                    (it / (45L * 60_000L)) * (45L * 60_000L) < finishedBucket
-                }
+                bars.keys.removeIf { (it / duration) * duration <= finishedBucket }
             }
         }
     }
+
+    private fun aggregateFortyFive(
+        bucketStart: Long,
+        candles: List<MarketCandle>
+    ) = MarketCandle(
+        openTime = bucketStart,
+        open = candles.first().open,
+        high = candles.maxOf { it.high },
+        low = candles.minOf { it.low },
+        close = candles.last().close,
+        volume = candles.sumOf { it.volume }
+    )
 
     override fun close() {
         scheduler.shutdownNow()
