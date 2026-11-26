@@ -12,7 +12,6 @@ enum class AnalysisTimeframe(
     FIVE_MINUTES("5m", "5 دقیقه"),
     FIFTEEN_MINUTES("15m", "15 دقیقه"),
     THIRTY_MINUTES("30m", "30 دقیقه"),
-    FORTY_FIVE_MINUTES("45m", "45 دقیقه"),
     ONE_HOUR("1h", "1 ساعت"),
     TWO_HOURS("2h", "2 ساعت")
 }
