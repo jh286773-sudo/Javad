@@ -2,19 +2,18 @@ package com.javad.signal
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class LuxAlgoFvgAutoEngineTest {
     @Test
-    fun autoThresholdUsesCumulativeAbsoluteDeltaAndChartBarIndex() {
+    fun autoThresholdUsesEveryChartBarCumulativeAbsoluteDeltaAndBarIndex() {
         val calculator = LuxAlgoFvgAutoCalculator(autoThresholdEnabled = true)
-        val first = calculator.evaluate(input(open = 100.0, close = 100.1, newTf = true))
-        val second = calculator.evaluate(input(open = 100.0, close = 100.1, newTf = true))
-        val third = calculator.evaluate(input(open = 100.0, close = 100.1, newTf = true))
-        val fourth = calculator.evaluate(input(open = 100.0, close = 106.0, newTf = true))
+        val first = calculator.evaluate(input(open = 100.0, close = 100.1))
+        val second = calculator.evaluate(input(open = 100.0, close = 100.1))
+        val third = calculator.evaluate(input(open = 100.0, close = 100.1))
+        val fourth = calculator.evaluate(input(open = 100.0, close = 106.0))
 
         assertNull(first.autoThreshold) // bar_index == 0, Pine result is na
         assertEquals(0.4, second.autoThreshold!!, 1e-9)
@@ -24,18 +23,22 @@ class LuxAlgoFvgAutoEngineTest {
     }
 
     @Test
-    fun disabledAutoThresholdUsesZero() {
+    fun disabledAutoThresholdUsesZeroInChartMode() {
         val calculator = LuxAlgoFvgAutoCalculator(autoThresholdEnabled = false)
-        val result = calculator.evaluate(input(open = 100.0, close = 100.1, newTf = true))
+        val result = calculator.evaluate(input(open = 100.0, close = 100.1))
         assertEquals(0.0, result.autoThreshold)
     }
 
     @Test
-    fun noFvgCanFormWithoutNewFvgTimeframe() {
+    fun chartModeEvaluatesFvgConditionsOnEachSuppliedChartBar() {
         val calculator = LuxAlgoFvgAutoCalculator(autoThresholdEnabled = false)
-        val result = calculator.evaluate(input(open = 100.0, close = 106.0, newTf = false))
-        assertFalse(result.bullishFvg)
-        assertFalse(result.bearishFvg)
+        val result = calculator.evaluate(
+            input(open = 100.0, close = 106.0).copy(
+                currentLow = 105.0,
+                highTwoBarsAgo = 104.0
+            )
+        )
+        assertTrue(result.bullishFvg)
     }
 
     @Test
@@ -50,13 +53,12 @@ class LuxAlgoFvgAutoEngineTest {
         assertEquals(FvgDirection.SHORT, gate.accept(short)?.direction)
     }
 
-    private fun input(open: Double, close: Double, newTf: Boolean) = FvgInput(
+    private fun input(open: Double, close: Double) = FvgInput(
         previousOpen = open,
         previousClose = close,
         currentHigh = 110.0,
         currentLow = 105.0,
         highTwoBarsAgo = 104.0,
-        lowTwoBarsAgo = 90.0,
-        newFvgTimeframe = newTf
+        lowTwoBarsAgo = 90.0
     )
 }
