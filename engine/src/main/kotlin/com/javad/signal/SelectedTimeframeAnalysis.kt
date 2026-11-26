@@ -109,7 +109,6 @@ class SelectedTimeframeAnalysis(
         processors[normalized] = processor
         lastProcessedOpenTime[normalized] = candles.last().openTime
         lastEmittedSignalOpenTime.remove(normalized)
-        lastEmittedDirection.remove(normalized)
         historyEvaluations.lastOrNull()?.fvgState?.let { latestFvgStates[normalized] = it }
     }
 
