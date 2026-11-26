@@ -12,7 +12,10 @@ import kotlin.math.abs
 /**
  * One chart bar's exact inputs for LuxAlgo get_ohlc():
  * close[1], open[1], high, low, high[2], low[2].
- * Null values represent unavailable history at the start of the chart.
+ *
+ * In LuxAlgo Chart mode (fvg_tf = ""), timeframeChanged is true on each
+ * chart bar. It is explicit here so the source condition is not silently
+ * replaced by an assumption inside the formula.
  */
 data class FvgInput(
     val previousOpen: Double?,
@@ -20,7 +23,8 @@ data class FvgInput(
     val currentHigh: Double,
     val currentLow: Double,
     val highTwoBarsAgo: Double?,
-    val lowTwoBarsAgo: Double?
+    val lowTwoBarsAgo: Double?,
+    val timeframeChanged: Boolean = true
 )
 
 enum class FvgDirection { LONG, SHORT }
@@ -42,15 +46,15 @@ data class Signal(
 
 /**
  * Stateful port of LuxAlgo SMC's FVG/Auto Threshold calculation in
- * Timeframe = Chart mode (`fvg_tf = ""`). Javad's selected analysis interval
- * is the chart interval, so `timeframe.change(fvg_tf)` is true for each new
- * chart candle and the FVG source OHLC is taken from that same interval.
- * The Auto Threshold denominator is Pine's chart
- * bar_index, not the number of bars in a locally fetched page. When processing
- * a partial history window, pass both its true first chart bar_index and the
- * cumulative absolute delta from all earlier chart bars. For a complete exchange
- * history beginning at its first available candle, both values are zero. Call once
- * for every chart bar, including bars where Pine history references are na.
+ * Timeframe = Chart mode (fvg_tf = ""). The selected Javad timeframe is the
+ * chart timeframe and therefore change_tf is true for every chart bar.
+ *
+ * Auto Threshold mirrors:
+ * ta.cum(math.abs(change_tf ? delta_per : 0)) / bar_index * 2
+ *
+ * For a partial history window, provide the true first chart bar_index and
+ * cumulative absolute delta immediately before its first candle. Exact
+ * TradingView numerical parity still requires identical source history/OHLC.
  */
 class LuxAlgoFvgAutoCalculator(
     private val autoThresholdEnabled: Boolean = true,
@@ -79,9 +83,7 @@ class LuxAlgoFvgAutoCalculator(
             input.previousOpen, input.previousClose,
             input.highTwoBarsAgo, input.lowTwoBarsAgo
         )
-        require(values.filterNotNull().all { it.isFinite() }) {
-            "OHLC values must be finite"
-        }
+        require(values.filterNotNull().all { it.isFinite() }) { "OHLC values must be finite" }
         require(input.previousOpen == null || input.previousOpen > 0.0) {
             "previousOpen must be greater than zero when available"
         }
@@ -91,26 +93,33 @@ class LuxAlgoFvgAutoCalculator(
             (input.previousClose - input.previousOpen) / input.previousOpen * 100.0
         } else null
 
-        // Pine rolls realtime executions back to the last confirmed bar.
-        // Each preview therefore uses committed ta.cum + this bar's contribution,
-        // without permanently accumulating the same delta on every websocket tick.
-        val candidateCumulative = cumulativeAbsoluteDelta + (deltaPercent?.let(::abs) ?: 0.0)
+        // Direct equivalent of: math.abs(change_tf ? delta_per : 0).
+        // Preview is recalculated from the last committed sum on every tick.
+        val deltaContribution = if (input.timeframeChanged) {
+            deltaPercent?.let(::abs) ?: 0.0
+        } else {
+            0.0
+        }
+        val candidateCumulative = cumulativeAbsoluteDelta + deltaContribution
 
-        // Pine bar_index is zero on the first chart bar.
+        // Direct equivalent of: fvg_auto ? ta.cum(...) / n * 2 : 0.
+        // bar_index is zero on the first chart bar, where the threshold is na.
         val threshold = when {
             !autoThresholdEnabled -> 0.0
             index == 0L -> null
             else -> candidateCumulative / index.toDouble() * 2.0
         }
 
-        val bullish = deltaPercent != null &&
+        val bullish = input.timeframeChanged &&
+            deltaPercent != null &&
             threshold != null &&
             input.highTwoBarsAgo != null &&
             input.currentLow > input.highTwoBarsAgo &&
             input.previousClose!! > input.highTwoBarsAgo &&
             deltaPercent > threshold
 
-        val bearish = deltaPercent != null &&
+        val bearish = input.timeframeChanged &&
+            deltaPercent != null &&
             threshold != null &&
             input.lowTwoBarsAgo != null &&
             input.currentHigh < input.lowTwoBarsAgo &&
@@ -126,8 +135,9 @@ class LuxAlgoFvgAutoCalculator(
 }
 
 /**
- * Maps real chronological Toobit candles to LuxAlgo's history references.
- * A completed candle at index i uses open/close from i-1 and high/low from i-2.
+ * Maps chronological Toobit chart candles to LuxAlgo's history references.
+ * On chart candle i: close[1]/open[1] come from i-1, high/low from i,
+ * and high[2]/low[2] come from i-2.
  */
 class LuxAlgoFvgAutoProcessor(
     private val chartTimeframe: AnalysisTimeframe,
@@ -143,11 +153,11 @@ class LuxAlgoFvgAutoProcessor(
     private val recentCandles = mutableListOf<MarketCandle>()
     private val expectedIntervalMillis = chartTimeframe.durationMillis
 
-    /** Re-evaluates the still-forming chart bar without committing ta.cum/bar_index. */
+    /** Chart mode: each update belongs to the selected chart timeframe. */
     fun preview(candle: MarketCandle): FvgEvaluation =
         calculator.preview(inputFor(candle))
 
-    /** Commits the completed chart bar exactly once. */
+    /** Commits one completed chart bar exactly once. */
     fun process(candle: MarketCandle): FvgEvaluation {
         val evaluation = calculator.evaluate(inputFor(candle))
         recentCandles += candle
@@ -158,7 +168,7 @@ class LuxAlgoFvgAutoProcessor(
     private fun inputFor(candle: MarketCandle): FvgInput {
         require(candle.openTime > 0L) { "Candle open time must be positive" }
         require(candle.openTime % expectedIntervalMillis == 0L) {
-            "Candle open time is not aligned to the Toobit chart interval $chartTimeframe"
+            "Candle open time is not aligned to the selected chart interval $chartTimeframe"
         }
         val previous = recentCandles.lastOrNull()
         if (previous != null) {
@@ -173,7 +183,8 @@ class LuxAlgoFvgAutoProcessor(
             currentHigh = candle.high,
             currentLow = candle.low,
             highTwoBarsAgo = twoBarsAgo?.high,
-            lowTwoBarsAgo = twoBarsAgo?.low
+            lowTwoBarsAgo = twoBarsAgo?.low,
+            timeframeChanged = true // timeframe.change("") in Chart mode
         )
     }
 
@@ -181,7 +192,10 @@ class LuxAlgoFvgAutoProcessor(
         candles.map(::process)
 }
 
-/** Emits the first valid FVG direction and subsequent events only when direction changes. */
+/**
+ * Javad's signal policy is intentionally separate from LuxAlgo's raw FVG
+ * condition: only a new opposite directional level is emitted as a signal.
+ */
 class DirectionSignalGate {
     private var currentDirection: FvgDirection? = null
 
@@ -189,9 +203,6 @@ class DirectionSignalGate {
         if (evaluation.bullishFvg == evaluation.bearishFvg) return null
 
         val next = if (evaluation.bullishFvg) FvgDirection.LONG else FvgDirection.SHORT
-
-        // Javad emits a new directional level only when the LuxAlgo FVG
-        // direction changes. Consecutive same-colour levels are not new signals.
         if (currentDirection == next) return null
 
         val delta = evaluation.deltaPercent ?: return null
@@ -202,7 +213,6 @@ class DirectionSignalGate {
 
     fun current(): FvgDirection? = currentDirection
 }
-
 
 /** Tracks the last emitted direction independently for each contract. */
 class PerSymbolDirectionSignalGate {
