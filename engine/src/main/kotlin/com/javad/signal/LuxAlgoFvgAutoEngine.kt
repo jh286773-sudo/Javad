@@ -103,13 +103,29 @@ class LuxAlgoFvgAutoCalculator(
  * A completed candle at index i uses open/close from i-1 and high/low from i-2.
  */
 class LuxAlgoFvgAutoProcessor(
+    private val timeframe: AnalysisTimeframe,
     autoThresholdEnabled: Boolean = true
 ) {
     private val calculator = LuxAlgoFvgAutoCalculator(autoThresholdEnabled)
     private val recentCandles = mutableListOf<MarketCandle>()
+    private val expectedIntervalMillis = when (timeframe) {
+        AnalysisTimeframe.ONE_MINUTE -> 60_000L
+        AnalysisTimeframe.FIVE_MINUTES -> 5L * 60_000L
+        AnalysisTimeframe.FIFTEEN_MINUTES -> 15L * 60_000L
+        AnalysisTimeframe.THIRTY_MINUTES -> 30L * 60_000L
+        AnalysisTimeframe.FORTY_FIVE_MINUTES -> 45L * 60_000L
+        AnalysisTimeframe.ONE_HOUR -> 60L * 60_000L
+        AnalysisTimeframe.TWO_HOURS -> 2L * 60L * 60_000L
+    }
 
     fun process(candle: MarketCandle): FvgEvaluation {
+        require(candle.openTime > 0L) { "Candle open time must be positive" }
         val previous = recentCandles.lastOrNull()
+        if (previous != null) {
+            require(candle.openTime - previous.openTime == expectedIntervalMillis) {
+                "Non-consecutive $timeframe candles: refusing to shift LuxAlgo bar index and Auto Threshold"
+            }
+        }
         val twoBarsAgo = recentCandles.getOrNull(recentCandles.lastIndex - 1)
 
         val evaluation = calculator.evaluate(
