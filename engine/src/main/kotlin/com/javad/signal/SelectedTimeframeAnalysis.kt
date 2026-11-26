@@ -1,15 +1,16 @@
 package com.javad.signal
 
 /**
- * A signal tied to the exact Toobit source interval and candle snapshot that
- * first satisfied the FVG condition. The snapshot may be intrabar; its close
- * field is the latest traded price in that update.
+ * A raw LuxAlgo FVG alert condition at the exact Toobit candle snapshot where
+ * the source condition is currently true. The callback is not deduplicated:
+ * alert frequency is a delivery-layer choice, not an extra strategy rule.
  */
 data class TimeframeSignal(
     val symbol: String,
     val timeframe: AnalysisTimeframe,
     val candle: MarketCandle,
-    val signal: Signal
+    val signal: Signal,
+    val fvgState: FvgStateUpdate
 )
 
 /**
@@ -20,17 +21,21 @@ data class TimeframeSignal(
  * selected interval is the LuxAlgo chart timeframe; FVG uses Chart mode
  * (`fvg_tf = ""`), never an independent FVG interval.
  *
- * Every update to the forming chart candle is evaluated intrabar. Preview
- * evaluations use Pine realtime rollback semantics: they calculate from the
- * last committed ta.cum value and do not advance bar_index. The final candle
- * snapshot is committed exactly once when Toobit reports it closed.
+ * Every forming-candle update is evaluated intrabar from the last committed
+ * Pine state. The source FVG condition can therefore appear or disappear
+ * during the live candle. Only the final candle snapshot commits ta.cum,
+ * bar_index, and FVG box arrays.
+ *
+ * No extra same-direction, per-candle, color-level, or trend filter is applied
+ * to the source FVG alert conditions. Every update for which the raw
+ * bullish_fvg_cnd or bearish_fvg_cnd is true is surfaced to the caller.
  *
  * Numbering follows Pine's chart dataset: the earliest candle returned by
- * Toobit's full-history request is bar_index 0; each subsequent candle gets
- * the next integer. ta.cum starts at zero on that same first candle. The
- * numbering and cumulative state are independent for each contract/timeframe.
- * TradingView numerical parity still requires identical history boundaries and
- * OHLC data; different exchange feeds cannot be assumed to share those values.
+ * Toobit's history request is bar_index 0; each subsequent candle gets the
+ * next integer. ta.cum starts at zero on that same first candle. The numbering
+ * and cumulative state are independent for each contract/timeframe.
+ * TradingView numerical parity still requires identical history boundaries
+ * and OHLC data; different exchange feeds cannot be assumed to share those.
  *
  * Changing timeframe invalidates every processor. The caller must reload
  * history and reconnect the stream at the new interval before analysis resumes.
@@ -42,7 +47,7 @@ class SelectedTimeframeAnalysis(
     private var settings: AnalysisSettings = initialSettings
     private val processors = mutableMapOf<String, LuxAlgoFvgAutoProcessor>()
     private val lastProcessedOpenTime = mutableMapOf<String, Long>()
-    private val emittedSignalOpenTime = mutableMapOf<String, Long>()
+    private val latestFvgStates = mutableMapOf<String, FvgStateUpdate>()
 
     @Synchronized
     fun currentSettings(): AnalysisSettings = settings
@@ -62,12 +67,12 @@ class SelectedTimeframeAnalysis(
         if (timeframeChanged) {
             processors.clear()
             lastProcessedOpenTime.clear()
-            emittedSignalOpenTime.clear()
+            latestFvgStates.clear()
         } else {
             removedSymbols.forEach { symbol ->
                 processors.remove(symbol)
                 lastProcessedOpenTime.remove(symbol)
-                emittedSignalOpenTime.remove(symbol)
+                latestFvgStates.remove(symbol)
             }
         }
     }
@@ -92,17 +97,26 @@ class SelectedTimeframeAnalysis(
             chartTimeframe = settings.selectedTimeframe,
             autoThresholdEnabled = autoThresholdEnabled
         )
-        processor.processHistory(candles)
+        val historyEvaluations = processor.processHistory(candles)
 
         processors[normalized] = processor
         lastProcessedOpenTime[normalized] = candles.last().openTime
-        emittedSignalOpenTime.remove(normalized)
+        historyEvaluations.lastOrNull()?.fvgState?.let { latestFvgStates[normalized] = it }
     }
 
     /**
-     * Evaluates each live snapshot intrabar and commits the final snapshot when
-     * the stream marks that candle closed. A detected gap invalidates the
-     * processor until REST backfill is loaded.
+     * Returns the latest FVG box-array state for a selected contract.
+     * During a forming candle this reflects the current preview (Pine rollback);
+     * after close it reflects the committed source arrays.
+     */
+    @Synchronized
+    fun currentFvgState(symbol: String): FvgStateUpdate? =
+        latestFvgStates[symbol.trim().uppercase()]
+
+    /**
+     * Evaluates every live snapshot against the raw LuxAlgo condition and
+     * commits only when the stream marks that candle closed. A detected gap
+     * invalidates the processor until REST backfill is loaded.
      */
     @Synchronized
     fun onCandleUpdate(update: ToobitCandleUpdate): TimeframeSignal? {
@@ -140,13 +154,13 @@ class SelectedTimeframeAnalysis(
             )
         }
 
+        evaluation.fvgState?.let { latestFvgStates[normalized] = it }
         if (update.isClosed) {
             lastProcessedOpenTime[normalized] = update.candle.openTime
         }
 
-        // A qualifying intrabar event is latched once per candle, matching a
-        // once-per-bar alert even if the live condition later rolls back.
-        if (emittedSignalOpenTime[normalized] == update.candle.openTime) return null
+        // This is the source's alertcondition boolean, not a custom signal
+        // suppression policy. The caller receives it whenever it is true.
         if (evaluation.bullishFvg == evaluation.bearishFvg) return null
         val delta = evaluation.deltaPercent ?: return null
         val threshold = evaluation.autoThreshold ?: return null
@@ -156,12 +170,12 @@ class SelectedTimeframeAnalysis(
             deltaPercent = delta,
             autoThreshold = threshold
         )
-        emittedSignalOpenTime[normalized] = update.candle.openTime
         return TimeframeSignal(
             symbol = normalized,
             timeframe = settings.selectedTimeframe,
             candle = update.candle,
-            signal = signal
+            signal = signal,
+            fvgState = evaluation.fvgState ?: FvgStateUpdate(emptyList(), emptyList(), emptyList())
         )
     }
 
@@ -180,6 +194,6 @@ class SelectedTimeframeAnalysis(
     private fun invalidate(symbol: String) {
         processors.remove(symbol)
         lastProcessedOpenTime.remove(symbol)
-        emittedSignalOpenTime.remove(symbol)
+        latestFvgStates.remove(symbol)
     }
 }
