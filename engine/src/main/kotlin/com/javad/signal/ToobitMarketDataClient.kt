@@ -131,10 +131,15 @@ class ToobitMarketDataClient(
     }
 
     /**
-     * Loads the complete available contract history from the exchange's earliest
-     * timestamp. This is the preferred input for Javad's LuxAlgo Auto Threshold:
-     * starting from a recent page would reset Pine's cumulative sum and bar_index.
+     * Loads the Basic-plan TradingView-equivalent intraday history window.
+     * The 5,000-bar lookback is aligned to TradingView's documented calendar
+     * boundary for the selected interval (week/month/year). The first returned
+     * candle becomes Pine bar_index 0 and the start of ta.cum for this symbol.
      * The regular paginated loader excludes the still-open candle.
+     *
+     * UTC is the Toobit exchange-time alignment assumption. OHLC differences,
+     * symbol-feed differences, or a different TradingView exchange timezone
+     * can still prevent exact numerical parity.
      */
     fun getAllHistoricalCandles(
         javadSymbol: String,
@@ -145,7 +150,10 @@ class ToobitMarketDataClient(
         getHistoricalCandles(
             javadSymbol = javadSymbol,
             timeframe = timeframe,
-            startTimeMillis = 0L,
+            startTimeMillis = TradingViewBasicHistoryWindow.startTimeMillis(
+                timeframe = timeframe,
+                endTimeMillis = endTimeMillis
+            ),
             endTimeMillis = endTimeMillis,
             pageLimit = pageLimit
         )
