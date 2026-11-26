@@ -90,7 +90,7 @@ class SelectedTimeframeAnalysis(
         val normalized = update.javadSymbol.trim().uppercase()
         if (normalized !in settings.symbols) return null
 
-        require(update.timeframe == settings.selectedTimeframe) {
+        check(update.timeframe == settings.selectedTimeframe) {
             "Received ${update.timeframe.apiInterval} candle while ${settings.selectedTimeframe.apiInterval} is selected"
         }
         if (!update.isClosed) return null
