@@ -18,9 +18,12 @@ enum class AnalysisTimeframe(
 }
 
 /**
- * Shared analysis settings: every selected symbol is evaluated using the
- * same single timeframe. Selecting another timeframe replaces the previous
- * selection; multiple simultaneous timeframes are not representable here.
+ * Shared analysis settings: all selected Toobit USDT perpetual contracts
+ * use the same single timeframe.
+ *
+ * Symbols use Toobit's perpetual notation, for example BTCUSDT.P.
+ * The exchange instrument list will be supplied by the market-data layer;
+ * this class validates selections but does not invent or hardcode that list.
  */
 data class AnalysisSettings(
     val selectedTimeframe: AnalysisTimeframe = AnalysisTimeframe.FIFTEEN_MINUTES,
@@ -29,8 +32,29 @@ data class AnalysisSettings(
     fun selectTimeframe(timeframe: AnalysisTimeframe): AnalysisSettings =
         copy(selectedTimeframe = timeframe)
 
-    fun selectSymbols(newSymbols: Set<String>): AnalysisSettings =
-        copy(symbols = newSymbols.map { it.trim().uppercase() }
-            .filter { it.isNotEmpty() }
-            .toSet())
+    fun selectSymbols(newSymbols: Set<String>): AnalysisSettings {
+        val normalized = newSymbols.map { it.trim().uppercase() }
+        require(normalized.all(::isSupportedSymbol)) {
+            "Only USDT-margined perpetual symbols ending in USDT.P are supported"
+        }
+        return copy(symbols = normalized.toSet())
+    }
+
+    fun addSymbol(symbol: String): AnalysisSettings {
+        val normalized = symbol.trim().uppercase()
+        require(isSupportedSymbol(normalized)) {
+            "Only USDT-margined perpetual symbols ending in USDT.P are supported"
+        }
+        return copy(symbols = symbols + normalized)
+    }
+
+    fun removeSymbol(symbol: String): AnalysisSettings =
+        copy(symbols = symbols - symbol.trim().uppercase())
+
+    companion object {
+        private val supportedSymbolPattern = Regex("^[A-Z0-9]+USDT\\.P$")
+
+        fun isSupportedSymbol(symbol: String): Boolean =
+            supportedSymbolPattern.matches(symbol.trim().uppercase())
+    }
 }
