@@ -150,7 +150,8 @@ class ToobitMarketDataClient(
             pageLimit = pageLimit
         )
 
-    private fun getServerTimeMillis(): Long {
+    /** Returns Toobit's server clock for history-window boundaries. */
+    fun getServerTimeMillis(): Long {
         val response = getJson("/api/v1/time")
         val serverTime = response.path("serverTime").asLong(0L)
         if (serverTime <= 0L) throw ToobitApiException("Toobit returned an invalid server time")
