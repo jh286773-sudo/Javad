@@ -45,13 +45,14 @@ class SelectedTimeframeAnalysis(
     @Synchronized
     fun updateSettings(next: AnalysisSettings) {
         val timeframeChanged = next.selectedTimeframe != settings.selectedTimeframe
-        val removedSymbols = settings.symbols - next.symbols
+        val previousSymbols = settings.symbols
+        val removedSymbols = previousSymbols - next.symbols
         settings = next
 
         if (timeframeChanged) {
             processors.clear()
             lastProcessedOpenTime.clear()
-            settings.symbols.forEach(signalGates::remove)
+            (previousSymbols + next.symbols).forEach(signalGates::remove)
         } else {
             removedSymbols.forEach { symbol ->
                 processors.remove(symbol)
