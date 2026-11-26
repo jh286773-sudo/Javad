@@ -124,24 +124,24 @@ class LuxAlgoFvgAutoEngineTest {
     }
 
     @Test
-    fun signalGateSuppressesRepeatedDirectionAndAllowsOppositeChange() {
+    fun signalEmitterPreservesEveryLuxAlgoFvgEventIncludingRepeatedDirections() {
         val gate = DirectionSignalGate()
         val long = FvgEvaluation(10, 6.0, 4.0, true, false)
         val repeatedLong = FvgEvaluation(11, 7.0, 4.0, true, false)
         val short = FvgEvaluation(12, -6.0, 4.0, false, true)
 
         assertNotNull(gate.accept(long))
-        assertNull(gate.accept(repeatedLong))
+        assertEquals(FvgDirection.LONG, gate.accept(repeatedLong)?.direction)
         assertEquals(FvgDirection.SHORT, gate.accept(short)?.direction)
     }
 
     @Test
-    fun directionSuppressionIsIndependentPerContract() {
+    fun perSymbolSignalStateIsIndependentAndDoesNotSuppressRepeatedFvgEvents() {
         val gate = PerSymbolDirectionSignalGate()
         val long = FvgEvaluation(10, 6.0, 4.0, true, false)
 
         assertNotNull(gate.accept("BTCUSDT.P", long))
-        assertNull(gate.accept("BTCUSDT.P", long))
+        assertNotNull(gate.accept("BTCUSDT.P", long))
         assertNotNull(gate.accept("ETHUSDT.P", long))
     }
 
