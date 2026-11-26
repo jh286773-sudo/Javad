@@ -9,7 +9,7 @@ import kotlin.test.assertTrue
 
 class SelectedTimeframeAnalysisTest {
     @Test
-    fun selectedTimeframeIsAppliedToEverySupportedIntervalAndOnlyClosedCandlesAreEvaluated() {
+    fun selectedTimeframeIsAppliedToEveryIntervalAndLiveCandleUpdatesAreEvaluatedIntrabar() {
         AnalysisTimeframe.entries.forEach { timeframe ->
             val symbol = "BTCUSDT.P"
             val settings = AnalysisSettings(
@@ -31,20 +31,20 @@ class SelectedTimeframeAnalysisTest {
                 openTime = start + 3L * timeframe.durationMillis
             )
 
+            val intrabarResult = analysis.onCandleUpdate(
+                ToobitCandleUpdate(symbol, liveCandle, isClosed = false, timeframe = timeframe)
+            )
+            assertEquals(timeframe, intrabarResult?.timeframe)
+            assertEquals(FvgDirection.LONG, intrabarResult?.signal?.direction)
+            assertEquals(liveCandle.openTime, intrabarResult?.candle?.openTime)
+
+            // Closing the same candle commits its cumulative contribution but
+            // must not send a second once-per-bar notification.
             assertNull(
                 analysis.onCandleUpdate(
-                    ToobitCandleUpdate(symbol, liveCandle, isClosed = false, timeframe = timeframe)
-                ),
-                "An open ${timeframe.apiInterval} candle must not be analyzed"
+                    ToobitCandleUpdate(symbol, liveCandle, isClosed = true, timeframe = timeframe)
+                )
             )
-
-            val result = analysis.onCandleUpdate(
-                ToobitCandleUpdate(symbol, liveCandle, isClosed = true, timeframe = timeframe)
-            )
-
-            assertEquals(timeframe, result?.timeframe)
-            assertEquals(FvgDirection.LONG, result?.signal?.direction)
-            assertEquals(liveCandle.openTime, result?.candle?.openTime)
         }
     }
 
