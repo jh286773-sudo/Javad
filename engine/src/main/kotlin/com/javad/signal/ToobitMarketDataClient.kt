@@ -119,6 +119,13 @@ class ToobitMarketDataClient(
             .filter { it.openTime + sourceDuration <= minOf(serverTime, endTimeMillis) }
             .sortedBy { it.openTime }
 
+        if (completed.isNotEmpty() && completed.first().openTime != startTimeMillis) {
+            throw ToobitApiException(
+                "Toobit history for $javadSymbol starts at ${completed.first().openTime}, " +
+                    "not the required dataset anchor $startTimeMillis; refusing to shift bar_index"
+            )
+        }
+
         completed.zipWithNext().forEach { (previous, next) ->
             if (next.openTime - previous.openTime != sourceDuration) {
                 throw ToobitApiException(
