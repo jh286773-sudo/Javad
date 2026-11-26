@@ -3,7 +3,7 @@ package com.javad.signal
 /**
  * A LuxAlgo FVG alert condition delivered at most once per source candle.
  * Intrabar evaluation remains live; repeated updates in the same candle do
- * not produce duplicate notifications. A later candle may emit the same side.
+ * not produce duplicate notifications. Same-direction levels are suppressed until a qualifying opposite level appears.
  */
 data class TimeframeSignal(
     val symbol: String,
@@ -169,8 +169,8 @@ class SelectedTimeframeAnalysis(
         }
 
         // Evaluate the raw source condition on every update, but deliver at
-        // most one notification for this candle. This does not suppress the
-        // same direction on later candles.
+        // most one notification for this candle. Same-side levels remain
+        // suppressed across candles until an opposite side is detected.
         if (evaluation.bullishFvg == evaluation.bearishFvg) return null
         if (lastEmittedSignalOpenTime[normalized] == update.candle.openTime) return null
         val delta = evaluation.deltaPercent ?: return null
