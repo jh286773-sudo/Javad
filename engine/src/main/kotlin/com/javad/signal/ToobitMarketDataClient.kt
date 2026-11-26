@@ -44,7 +44,11 @@ class ToobitMarketDataClient(
 ) {
     /** Returns only active, linear, USDT-margined perpetual contracts. */
     fun listUsdtPerpetualContracts(): List<ToobitPerpetualContract> {
-        val root = getJson("/api/v1/exchangeInfo")
+        return parseContracts(getJson("/api/v1/exchangeInfo"))
+    }
+
+    /** Pure exchangeInfo parser, separated so the contract filter can be unit-tested. */
+    internal fun parseContracts(root: JsonNode): List<ToobitPerpetualContract> {
         val contracts = root.path("contracts")
         if (!contracts.isArray) throw ToobitApiException("Toobit exchangeInfo has no contracts array")
 
