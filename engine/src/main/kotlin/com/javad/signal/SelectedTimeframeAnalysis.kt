@@ -42,7 +42,6 @@ class SelectedTimeframeAnalysis(
     private val processors = mutableMapOf<String, LuxAlgoFvgAutoProcessor>()
     private val lastProcessedOpenTime = mutableMapOf<String, Long>()
     private val emittedSignalOpenTime = mutableMapOf<String, Long>()
-    private val signalGates = PerSymbolDirectionSignalGate()
 
     @Synchronized
     fun currentSettings(): AnalysisSettings = settings
@@ -63,13 +62,11 @@ class SelectedTimeframeAnalysis(
             processors.clear()
             lastProcessedOpenTime.clear()
             emittedSignalOpenTime.clear()
-            (previousSymbols + next.symbols).forEach(signalGates::remove)
         } else {
             removedSymbols.forEach { symbol ->
                 processors.remove(symbol)
                 lastProcessedOpenTime.remove(symbol)
                 emittedSignalOpenTime.remove(symbol)
-                signalGates.remove(symbol)
             }
         }
     }
@@ -104,7 +101,6 @@ class SelectedTimeframeAnalysis(
         processors[normalized] = processor
         lastProcessedOpenTime[normalized] = candles.last().openTime
         emittedSignalOpenTime.remove(normalized)
-        signalGates.remove(normalized)
     }
 
     /**
@@ -155,7 +151,15 @@ class SelectedTimeframeAnalysis(
         // A qualifying intrabar event is latched once per candle, matching a
         // once-per-bar alert even if the live condition later rolls back.
         if (emittedSignalOpenTime[normalized] == update.candle.openTime) return null
-        val signal = signalGates.accept(normalized, evaluation) ?: return null
+        if (evaluation.bullishFvg == evaluation.bearishFvg) return null
+        val delta = evaluation.deltaPercent ?: return null
+        val threshold = evaluation.autoThreshold ?: return null
+        val signal = Signal(
+            direction = if (evaluation.bullishFvg) FvgDirection.LONG else FvgDirection.SHORT,
+            chartBarIndex = evaluation.chartBarIndex,
+            deltaPercent = delta,
+            autoThreshold = threshold
+        )
         emittedSignalOpenTime[normalized] = update.candle.openTime
         return TimeframeSignal(
             symbol = normalized,
@@ -181,6 +185,5 @@ class SelectedTimeframeAnalysis(
         processors.remove(symbol)
         lastProcessedOpenTime.remove(symbol)
         emittedSignalOpenTime.remove(symbol)
-        signalGates.remove(symbol)
     }
 }
