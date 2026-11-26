@@ -88,7 +88,7 @@ class LuxAlgoFvgAutoEngineTest {
             timeframe = AnalysisTimeframe.FIFTEEN_MINUTES,
             autoThresholdEnabled = true
         )
-        val start = 1_700_000_100_000L
+        val start = 1_700_000_100_000L - (1_700_000_100_000L % (15L * 60_000L))
         val candles = listOf(
             candle(100.0, 101.0, 105.0, 95.0, start),
             candle(101.0, 103.0, 108.0, 99.0, start + 15L * 60_000L),
