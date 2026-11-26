@@ -18,7 +18,9 @@ data class ToobitCandleUpdate(
     /** True only after the exchange starts publishing the next source candle. */
     val isClosed: Boolean,
     /** True when one or more expected source candles were skipped. */
-    val gapDetected: Boolean = false
+    val gapDetected: Boolean = false,
+    /** The exact exchange interval used by this subscription. */
+    val timeframe: AnalysisTimeframe
 )
 
 /**
@@ -201,7 +203,7 @@ class ToobitKlineStream(
             when {
                 previous == null -> {
                     previousBySymbol[symbol] = candle
-                    updates += ToobitCandleUpdate(symbol, candle, false)
+                    updates += ToobitCandleUpdate(symbol, candle, false, timeframe = timeframe)
                 }
                 candle.openTime < previous.openTime -> return
                 candle.openTime == previous.openTime -> {
@@ -209,26 +211,16 @@ class ToobitKlineStream(
                     updates += ToobitCandleUpdate(symbol, candle, false)
                 }
                 else -> {
-                    val gap = candle.openTime - previous.openTime != intervalMillis(timeframe.apiInterval)
+                    val gap = candle.openTime - previous.openTime != timeframe.durationMillis
                     previousBySymbol[symbol] = candle
-                    updates += ToobitCandleUpdate(symbol, previous, true, gap)
-                    updates += ToobitCandleUpdate(symbol, candle, false, gap)
+                    updates += ToobitCandleUpdate(symbol, previous, true, gap, timeframe)
+                    updates += ToobitCandleUpdate(symbol, candle, false, gap, timeframe)
                 }
             }
         }
         updates.forEach(onUpdate)
     }
 
-    private fun intervalMillis(interval: String): Long = when (interval) {
-        "1m" -> 60_000L
-        "5m" -> 5 * 60_000L
-        "15m" -> 15 * 60_000L
-        "30m" -> 30 * 60_000L
-        "45m" -> 45 * 60_000L
-        "1h" -> 60 * 60_000L
-        "2h" -> 2 * 60 * 60_000L
-        else -> throw IllegalArgumentException("Unsupported Toobit stream interval: $interval")
-    }
 
     override fun close() {
         synchronized(lock) {
