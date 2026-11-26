@@ -70,9 +70,13 @@ class ToobitMarketDataClient(
     }
 
     /**
-     * Loads historical candles in ascending open-time order.
+     * Loads completed historical candles in ascending open-time order.
      * The 45-minute Javad interval is built from three consecutive 15-minute
      * Toobit candles because Toobit does not publish a native 45m interval.
+     *
+     * Incomplete live candles are excluded using Toobit's server clock. Missing
+     * source candles are rejected rather than silently shifting LuxAlgo's
+     * cumulative threshold and bar index.
      */
     fun getHistoricalCandles(
         javadSymbol: String,
@@ -88,6 +92,7 @@ class ToobitMarketDataClient(
         val sourceInterval = if (timeframe == AnalysisTimeframe.FORTY_FIVE_MINUTES) "15m"
             else timeframe.apiInterval
         val sourceDuration = intervalMillis(sourceInterval)
+        val serverTime = getServerTimeMillis()
         val sourceCandles = mutableListOf<MarketCandle>()
         var cursor = startTimeMillis
 
@@ -109,10 +114,29 @@ class ToobitMarketDataClient(
             if (page.size < pageLimit) break
         }
 
-        val unique = sourceCandles.distinctBy { it.openTime }.sortedBy { it.openTime }
+        val completed = sourceCandles
+            .distinctBy { it.openTime }
+            .filter { it.openTime + sourceDuration <= serverTime }
+            .sortedBy { it.openTime }
+
+        completed.zipWithNext().forEach { (previous, next) ->
+            if (next.openTime - previous.openTime != sourceDuration) {
+                throw ToobitApiException(
+                    "Missing Toobit candles for $javadSymbol at $sourceInterval; refusing inaccurate analysis"
+                )
+            }
+        }
+
         return if (timeframe == AnalysisTimeframe.FORTY_FIVE_MINUTES) {
-            aggregateCandles(unique, 45L * 60_000L)
-        } else unique
+            aggregateCandles(completed, 45L * 60_000L)
+        } else completed
+    }
+
+    private fun getServerTimeMillis(): Long {
+        val response = getJson("/api/v1/time")
+        val serverTime = response.path("serverTime").asLong(0L)
+        if (serverTime <= 0L) throw ToobitApiException("Toobit returned an invalid server time")
+        return serverTime
     }
 
     private fun findContract(javadSymbol: String): ToobitPerpetualContract =
