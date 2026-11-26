@@ -130,6 +130,26 @@ class ToobitMarketDataClient(
         return completed
     }
 
+    /**
+     * Loads the complete available contract history from the exchange's earliest
+     * timestamp. This is the preferred input for Javad's LuxAlgo Auto Threshold:
+     * starting from a recent page would reset Pine's cumulative sum and bar_index.
+     * The regular paginated loader excludes the still-open candle.
+     */
+    fun getAllHistoricalCandles(
+        javadSymbol: String,
+        timeframe: AnalysisTimeframe,
+        endTimeMillis: Long,
+        pageLimit: Int = 1000
+    ): List<MarketCandle> =
+        getHistoricalCandles(
+            javadSymbol = javadSymbol,
+            timeframe = timeframe,
+            startTimeMillis = 0L,
+            endTimeMillis = endTimeMillis,
+            pageLimit = pageLimit
+        )
+
     private fun getServerTimeMillis(): Long {
         val response = getJson("/api/v1/time")
         val serverTime = response.path("serverTime").asLong(0L)
