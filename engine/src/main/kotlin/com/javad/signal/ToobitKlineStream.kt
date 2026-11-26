@@ -9,13 +9,16 @@ import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionStage
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 
 data class ToobitCandleUpdate(
     val javadSymbol: String,
     val candle: MarketCandle,
     /** True only after the exchange starts publishing the next source candle. */
-    val isClosed: Boolean
+    val isClosed: Boolean,
+    /** True when one or more expected source candles were skipped. */
+    val gapDetected: Boolean = false
 )
 
 /**
@@ -32,9 +35,12 @@ class ToobitKlineStream(
 ) : AutoCloseable {
     private val scheduler: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor()
     @Volatile private var socket: WebSocket? = null
+    @Volatile private var pingTask: ScheduledFuture<*>? = null
     private val previousBySymbol = mutableMapOf<String, MarketCandle>()
     private val exchangeToJavad = mutableMapOf<String, String>()
     private val lock = Any()
+    private val fifteenMinuteBars = mutableMapOf<String, MutableMap<Long, MarketCandle>>()
+    private val last45MinuteBucketBySymbol = mutableMapOf<String, Long>()
 
     fun connect(
         contracts: List<ToobitPerpetualContract>,
@@ -45,7 +51,10 @@ class ToobitKlineStream(
             exchangeToJavad.clear()
             contracts.forEach { exchangeToJavad[it.exchangeSymbol] = it.javadSymbol }
             previousBySymbol.clear()
+            fifteenMinuteBars.clear()
+            last45MinuteBucketBySymbol.clear()
         }
+        pingTask?.cancel(false)
         val sourceInterval = if (timeframe == AnalysisTimeframe.FORTY_FIVE_MINUTES) "15m"
             else timeframe.apiInterval
 
@@ -63,7 +72,7 @@ class ToobitKlineStream(
                         "params" to mapOf("binary" to false)
                     )
                     webSocket.sendText(json.writeValueAsString(request), true)
-                    scheduler.scheduleAtFixedRate({
+                    pingTask = scheduler.scheduleAtFixedRate({
                         socket?.sendText(
                             json.writeValueAsString(mapOf("ping" to System.currentTimeMillis())),
                             true
@@ -89,6 +98,7 @@ class ToobitKlineStream(
 
                 override fun onClose(webSocket: WebSocket, statusCode: Int, reason: String): CompletionStage<*> {
                     socket = null
+                    pingTask?.cancel(false)
                     return CompletableFuture.completedFuture(null)
                 }
             }).thenAccept { webSocket -> socket = webSocket }
@@ -110,43 +120,113 @@ class ToobitKlineStream(
                 close = item.path("c").asDouble(),
                 volume = item.path("v").asDouble()
             )
+            if (candle.openTime <= 0L || !listOf(
+                    candle.open, candle.high, candle.low, candle.close, candle.volume
+                ).all { it.isFinite() }) return@forEach
+
             if (timeframe == AnalysisTimeframe.FORTY_FIVE_MINUTES) {
                 processFortyFiveMinute(javadSymbol, candle)
             } else {
-                val previous = synchronized(lock) { previousBySymbol.put(javadSymbol, candle) }
-                if (previous != null && previous.openTime != candle.openTime) {
-                    onUpdate(ToobitCandleUpdate(javadSymbol, previous, true))
-                }
-                onUpdate(ToobitCandleUpdate(javadSymbol, candle, false))
+                processStandardCandle(javadSymbol, candle, timeframe)
             }
         }
     }
 
-    private val fifteenMinuteBars = mutableMapOf<String, MutableMap<Long, MarketCandle>>()
+    private fun processStandardCandle(
+        symbol: String,
+        candle: MarketCandle,
+        timeframe: AnalysisTimeframe
+    ) {
+        val updates = mutableListOf<ToobitCandleUpdate>()
+        synchronized(lock) {
+            val previous = previousBySymbol[symbol]
+            when {
+                previous == null -> {
+                    previousBySymbol[symbol] = candle
+                    updates += ToobitCandleUpdate(symbol, candle, false)
+                }
+                candle.openTime < previous.openTime -> return
+                candle.openTime == previous.openTime -> {
+                    previousBySymbol[symbol] = candle
+                    updates += ToobitCandleUpdate(symbol, candle, false)
+                }
+                else -> {
+                    val gap = candle.openTime - previous.openTime != intervalMillis(timeframe.apiInterval)
+                    previousBySymbol[symbol] = candle
+                    updates += ToobitCandleUpdate(symbol, previous, true, gap)
+                    updates += ToobitCandleUpdate(symbol, candle, false, gap)
+                }
+            }
+        }
+        updates.forEach(onUpdate)
+    }
 
     private fun processFortyFiveMinute(symbol: String, candle: MarketCandle) {
         val duration = 45L * 60_000L
+        val sourceDuration = 15L * 60_000L
         val bucket = (candle.openTime / duration) * duration
+        val updates = mutableListOf<ToobitCandleUpdate>()
         synchronized(lock) {
-            val bars = fifteenMinuteBars.getOrPut(symbol) { mutableMapOf() }
-            bars[candle.openTime] = candle
-            val bucketBars = bars.values.filter { (it.openTime / duration) * duration == bucket }
-                .sortedBy { it.openTime }
-            if (bucketBars.size == 3) {
-                onUpdate(ToobitCandleUpdate(symbol, aggregateFortyFive(bucket, bucketBars), false))
+            val lastBucket = last45MinuteBucketBySymbol[symbol]
+            if (lastBucket != null && bucket < lastBucket) return
+            if (lastBucket == null || bucket > lastBucket) {
+                last45MinuteBucketBySymbol[symbol] = bucket
             }
 
-            val completedBuckets = bars.keys.map { (it / duration) * duration }.distinct().sorted()
-            if (completedBuckets.size > 1) {
-                val finishedBucket = completedBuckets[completedBuckets.lastIndex - 1]
-                val finished = bars.values.filter { (it.openTime / duration) * duration == finishedBucket }
+            val bars = fifteenMinuteBars.getOrPut(symbol) { mutableMapOf() }
+            bars[candle.openTime] = candle
+
+            val completedBuckets = bars.keys
+                .map { (it / duration) * duration }
+                .distinct()
+                .filter { it < bucket }
+                .sorted()
+            completedBuckets.forEach { finishedBucket ->
+                val finished = bars.values
+                    .filter { (it.openTime / duration) * duration == finishedBucket }
                     .sortedBy { it.openTime }
-                if (finished.size == 3) {
-                    onUpdate(ToobitCandleUpdate(symbol, aggregateFortyFive(finishedBucket, finished), true))
+                val complete = finished.size == 3 &&
+                    finished.mapIndexed { index, item ->
+                        item.openTime == finishedBucket + index * sourceDuration
+                    }.all { it } &&
+                    finished.last().openTime + sourceDuration == finishedBucket + duration
+                if (complete) {
+                    updates += ToobitCandleUpdate(
+                        symbol, aggregateFortyFive(finishedBucket, finished), true
+                    )
+                } else {
+                    updates += ToobitCandleUpdate(
+                        symbol, aggregateFortyFive(finishedBucket, finished), true, true
+                    )
                 }
-                bars.keys.removeIf { (it / duration) * duration <= finishedBucket }
+                bars.keys.removeIf { (it / duration) * duration == finishedBucket }
+            }
+
+            val currentBucketBars = bars.values
+                .filter { (it.openTime / duration) * duration == bucket }
+                .sortedBy { it.openTime }
+            val completeCurrent = currentBucketBars.size == 3 &&
+                currentBucketBars.mapIndexed { index, item ->
+                    item.openTime == bucket + index * sourceDuration
+                }.all { it } &&
+                currentBucketBars.last().openTime + sourceDuration == bucket + duration
+            if (completeCurrent) {
+                updates += ToobitCandleUpdate(
+                    symbol, aggregateFortyFive(bucket, currentBucketBars), false
+                )
             }
         }
+        updates.forEach(onUpdate)
+    }
+
+    private fun intervalMillis(interval: String): Long = when (interval) {
+        "1m" -> 60_000L
+        "5m" -> 5 * 60_000L
+        "15m" -> 15 * 60_000L
+        "30m" -> 30 * 60_000L
+        "1h" -> 60 * 60_000L
+        "2h" -> 2 * 60 * 60_000L
+        else -> throw IllegalArgumentException("Unsupported Toobit stream interval: $interval")
     }
 
     private fun aggregateFortyFive(
@@ -162,6 +242,7 @@ class ToobitKlineStream(
     )
 
     override fun close() {
+        pingTask?.cancel(false)
         scheduler.shutdownNow()
         socket?.sendClose(WebSocket.NORMAL_CLOSURE, "Javad market stream stopped")
         socket = null
