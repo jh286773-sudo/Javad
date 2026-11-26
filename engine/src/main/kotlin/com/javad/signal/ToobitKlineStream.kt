@@ -91,10 +91,7 @@ class ToobitKlineStream(
                     socket = null
                     return CompletableFuture.completedFuture(null)
                 }
-            }).thenApply { webSocket ->
-                socket = webSocket
-                null
-            }
+            }).thenAccept { webSocket -> socket = webSocket }
     }
 
     private fun processMessage(raw: String, timeframe: AnalysisTimeframe) {
