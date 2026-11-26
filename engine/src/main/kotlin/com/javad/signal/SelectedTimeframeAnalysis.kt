@@ -49,6 +49,8 @@ class SelectedTimeframeAnalysis(
     private val lastProcessedOpenTime = mutableMapOf<String, Long>()
     private val latestFvgStates = mutableMapOf<String, FvgStateUpdate>()
     private val lastEmittedSignalOpenTime = mutableMapOf<String, Long>()
+    // Same-side levels stay suppressed until a qualifying opposite level appears.
+    private val lastEmittedDirection = mutableMapOf<String, FvgDirection>()
 
     @Synchronized
     fun currentSettings(): AnalysisSettings = settings
@@ -70,12 +72,14 @@ class SelectedTimeframeAnalysis(
             lastProcessedOpenTime.clear()
             latestFvgStates.clear()
             lastEmittedSignalOpenTime.clear()
+            lastEmittedDirection.clear()
         } else {
             removedSymbols.forEach { symbol ->
                 processors.remove(symbol)
                 lastProcessedOpenTime.remove(symbol)
                 latestFvgStates.remove(symbol)
                 lastEmittedSignalOpenTime.remove(symbol)
+                lastEmittedDirection.remove(symbol)
             }
         }
     }
@@ -105,6 +109,7 @@ class SelectedTimeframeAnalysis(
         processors[normalized] = processor
         lastProcessedOpenTime[normalized] = candles.last().openTime
         lastEmittedSignalOpenTime.remove(normalized)
+        lastEmittedDirection.remove(normalized)
         historyEvaluations.lastOrNull()?.fvgState?.let { latestFvgStates[normalized] = it }
     }
 
@@ -170,13 +175,17 @@ class SelectedTimeframeAnalysis(
         if (lastEmittedSignalOpenTime[normalized] == update.candle.openTime) return null
         val delta = evaluation.deltaPercent ?: return null
         val threshold = evaluation.autoThreshold ?: return null
+        val direction = if (evaluation.bullishFvg) FvgDirection.LONG else FvgDirection.SHORT
+        if (lastEmittedDirection[normalized] == direction) return null
+
         val signal = Signal(
-            direction = if (evaluation.bullishFvg) FvgDirection.LONG else FvgDirection.SHORT,
+            direction = direction,
             chartBarIndex = evaluation.chartBarIndex,
             deltaPercent = delta,
             autoThreshold = threshold
         )
         lastEmittedSignalOpenTime[normalized] = update.candle.openTime
+        lastEmittedDirection[normalized] = direction
         return TimeframeSignal(
             symbol = normalized,
             timeframe = settings.selectedTimeframe,
@@ -203,5 +212,6 @@ class SelectedTimeframeAnalysis(
         lastProcessedOpenTime.remove(symbol)
         latestFvgStates.remove(symbol)
         lastEmittedSignalOpenTime.remove(symbol)
+        lastEmittedDirection.remove(symbol)
     }
 }
