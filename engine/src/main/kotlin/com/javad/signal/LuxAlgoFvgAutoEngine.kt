@@ -132,7 +132,6 @@ class LuxAlgoFvgAutoProcessor(
         AnalysisTimeframe.FIVE_MINUTES -> 5L * 60_000L
         AnalysisTimeframe.FIFTEEN_MINUTES -> 15L * 60_000L
         AnalysisTimeframe.THIRTY_MINUTES -> 30L * 60_000L
-        AnalysisTimeframe.FORTY_FIVE_MINUTES -> 45L * 60_000L
         AnalysisTimeframe.ONE_HOUR -> 60L * 60_000L
         AnalysisTimeframe.TWO_HOURS -> 2L * 60L * 60_000L
     }
