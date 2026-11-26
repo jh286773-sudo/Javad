@@ -36,6 +36,12 @@ class ToobitKlineStream(
     private val scheduler: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor()
     @Volatile private var socket: WebSocket? = null
     @Volatile private var pingTask: ScheduledFuture<*>? = null
+    @Volatile private var desiredContracts: List<ToobitPerpetualContract> = emptyList()
+    @Volatile private var desiredTimeframe: AnalysisTimeframe? = null
+    @Volatile private var manuallyClosed = false
+    private var reconnectAttempt = 0
+    private var reconnectScheduled = false
+    private var reconnectTask: ScheduledFuture<*>? = null
     private val previousBySymbol = mutableMapOf<String, MarketCandle>()
     private val exchangeToJavad = mutableMapOf<String, String>()
     private val lock = Any()
@@ -48,6 +54,13 @@ class ToobitKlineStream(
     ): CompletableFuture<Void> {
         require(contracts.isNotEmpty()) { "At least one Toobit contract is required" }
         synchronized(lock) {
+            desiredContracts = contracts.toList()
+            desiredTimeframe = timeframe
+            manuallyClosed = false
+            reconnectAttempt = 0
+            reconnectScheduled = false
+            reconnectTask?.cancel(false)
+            reconnectTask = null
             exchangeToJavad.clear()
             contracts.forEach { exchangeToJavad[it.exchangeSymbol] = it.javadSymbol }
             previousBySymbol.clear()
@@ -58,13 +71,30 @@ class ToobitKlineStream(
         val sourceInterval = if (timeframe == AnalysisTimeframe.FORTY_FIVE_MINUTES) "15m"
             else timeframe.apiInterval
 
-        return httpClient.newWebSocketBuilder()
+        val connection = openSocket(contracts, timeframe)
+        return connection
+    }
+
+    private fun openSocket(
+        contracts: List<ToobitPerpetualContract>,
+        timeframe: AnalysisTimeframe
+    ): CompletableFuture<Void> {
+        val sourceInterval = if (timeframe == AnalysisTimeframe.FORTY_FIVE_MINUTES) "15m"
+            else timeframe.apiInterval
+
+        val connection = httpClient.newWebSocketBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .buildAsync(URI.create("wss://stream.toobit.com/quote/ws/v1"), object : WebSocket.Listener {
                 private val fragments = StringBuilder()
 
                 override fun onOpen(webSocket: WebSocket) {
                     socket = webSocket
+                    synchronized(lock) {
+                        reconnectAttempt = 0
+                        reconnectScheduled = false
+                        reconnectTask = null
+                    }
+                    pingTask?.cancel(false)
                     val request = mapOf(
                         "symbol" to contracts.joinToString(", ") { it.exchangeSymbol },
                         "topic" to "kline_$sourceInterval",
@@ -93,15 +123,51 @@ class ToobitKlineStream(
                 }
 
                 override fun onError(webSocket: WebSocket, error: Throwable) {
-                    socket = null
+                    if (socket === webSocket) {
+                        socket = null
+                        pingTask?.cancel(false)
+                        scheduleReconnect()
+                    }
                 }
 
                 override fun onClose(webSocket: WebSocket, statusCode: Int, reason: String): CompletionStage<*> {
-                    socket = null
-                    pingTask?.cancel(false)
+                    if (socket === webSocket) {
+                        socket = null
+                        pingTask?.cancel(false)
+                        scheduleReconnect()
+                    }
                     return CompletableFuture.completedFuture(null)
                 }
-            }).thenAccept { webSocket -> socket = webSocket }
+            })
+
+        connection.whenComplete { _, error ->
+            if (error != null) scheduleReconnect()
+        }
+        return connection.thenAccept { }
+    }
+
+    /** Reconnects with bounded exponential backoff after an unexpected disconnect. */
+    private fun scheduleReconnect() {
+        synchronized(lock) {
+            if (manuallyClosed || desiredContracts.isEmpty() || desiredTimeframe == null || reconnectScheduled) {
+                return
+            }
+            reconnectScheduled = true
+            val delayMillis = (1_000L shl reconnectAttempt.coerceAtMost(5)).coerceAtMost(30_000L)
+            reconnectAttempt += 1
+            reconnectTask = scheduler.schedule({
+                val contracts: List<ToobitPerpetualContract>
+                val timeframe: AnalysisTimeframe
+                synchronized(lock) {
+                    reconnectScheduled = false
+                    reconnectTask = null
+                    if (manuallyClosed) return@schedule
+                    contracts = desiredContracts
+                    timeframe = desiredTimeframe ?: return@schedule
+                }
+                openSocket(contracts, timeframe)
+            }, delayMillis, TimeUnit.MILLISECONDS)
+        }
     }
 
     private fun processMessage(raw: String, timeframe: AnalysisTimeframe) {
@@ -245,6 +311,12 @@ class ToobitKlineStream(
     )
 
     override fun close() {
+        synchronized(lock) {
+            manuallyClosed = true
+            reconnectScheduled = false
+            reconnectTask?.cancel(false)
+            reconnectTask = null
+        }
         pingTask?.cancel(false)
         scheduler.shutdownNow()
         socket?.sendClose(WebSocket.NORMAL_CLOSURE, "Javad market stream stopped")
