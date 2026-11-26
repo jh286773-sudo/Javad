@@ -75,9 +75,6 @@ class ToobitMarketDataClient(
 
     /**
      * Loads completed historical candles in ascending open-time order.
-     * The 45-minute Javad interval is built from three consecutive 15-minute
-     * Toobit candles because Toobit does not publish a native 45m interval.
-     *
      * Incomplete live candles are excluded using Toobit's server clock. Missing
      * source candles are rejected rather than silently shifting LuxAlgo's
      * cumulative threshold and bar index.
@@ -93,8 +90,7 @@ class ToobitMarketDataClient(
         require(pageLimit in 1..1000) { "Toobit kline page limit must be between 1 and 1000" }
 
         val contract = findContract(javadSymbol)
-        val sourceInterval = if (timeframe == AnalysisTimeframe.FORTY_FIVE_MINUTES) "15m"
-            else timeframe.apiInterval
+        val sourceInterval = timeframe.apiInterval
         val sourceDuration = intervalMillis(sourceInterval)
         val serverTime = getServerTimeMillis()
         val sourceCandles = mutableListOf<MarketCandle>()
@@ -131,9 +127,7 @@ class ToobitMarketDataClient(
             }
         }
 
-        return if (timeframe == AnalysisTimeframe.FORTY_FIVE_MINUTES) {
-            aggregateCandles(completed, 45L * 60_000L)
-        } else completed
+        return completed
     }
 
     private fun getServerTimeMillis(): Long {
@@ -199,28 +193,4 @@ class ToobitMarketDataClient(
         else -> throw IllegalArgumentException("Unsupported Toobit source interval: $interval")
     }
 
-    private fun aggregateCandles(
-        candles: List<MarketCandle>,
-        targetDurationMillis: Long
-    ): List<MarketCandle> {
-        if (candles.isEmpty()) return emptyList()
-        val sourceDuration = 15L * 60_000L
-        val buckets = candles.groupBy { (it.openTime / targetDurationMillis) * targetDurationMillis }
-        return buckets.entries.sortedBy { it.key }.mapNotNull { (bucketStart, rows) ->
-            val ordered = rows.sortedBy { it.openTime }
-            val expectedCount = (targetDurationMillis / sourceDuration).toInt()
-            val aligned = ordered.size == expectedCount &&
-                ordered.first().openTime == bucketStart &&
-                ordered.zipWithNext().all { (a, b) -> b.openTime - a.openTime == sourceDuration } &&
-                ordered.last().openTime + sourceDuration == bucketStart + targetDurationMillis
-            if (!aligned) null else MarketCandle(
-                openTime = bucketStart,
-                open = ordered.first().open,
-                high = ordered.maxOf { it.high },
-                low = ordered.minOf { it.low },
-                close = ordered.last().close,
-                volume = ordered.sumOf { it.volume }
-            )
-        }
-    }
 }
