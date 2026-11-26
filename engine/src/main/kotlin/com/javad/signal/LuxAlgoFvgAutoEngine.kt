@@ -178,7 +178,7 @@ class LuxAlgoFvgAutoProcessor(
         candles.map(::process)
 }
 
-/** Emits every valid LuxAlgo FVG event, including consecutive events of the same direction. */
+/** Emits the first valid FVG direction and subsequent events only when direction changes. */
 class DirectionSignalGate {
     private var currentDirection: FvgDirection? = null
 
@@ -201,7 +201,7 @@ class DirectionSignalGate {
 }
 
 
-/** Tracks direction independently per contract while preserving every raw LuxAlgo FVG event. */
+/** Tracks the last emitted direction independently for each contract. */
 class PerSymbolDirectionSignalGate {
     private val gates = mutableMapOf<String, DirectionSignalGate>()
 
