@@ -42,6 +42,27 @@ class LuxAlgoFvgAutoEngineTest {
     }
 
     @Test
+    fun realtimePreviewUsesPineRollbackAndDoesNotDoubleAccumulateOrAdvanceBarIndex() {
+        val calculator = LuxAlgoFvgAutoCalculator(autoThresholdEnabled = true)
+        calculator.evaluate(input(open = 100.0, close = 101.0))
+
+        val liveBar = input(open = 100.0, close = 105.0)
+        val firstPreview = calculator.preview(liveBar)
+        val secondPreview = calculator.preview(liveBar)
+        val committed = calculator.evaluate(liveBar)
+        val nextBar = calculator.evaluate(input(open = 100.0, close = 101.0))
+
+        assertEquals(1L, firstPreview.chartBarIndex)
+        assertEquals(firstPreview.autoThreshold, secondPreview.autoThreshold)
+        assertEquals(firstPreview.autoThreshold, committed.autoThreshold)
+        assertEquals(2L, nextBar.chartBarIndex)
+        // 1% committed + 5% current bar, divided by bar_index 1, times 2.
+        assertEquals(12.0, committed.autoThreshold!!, 1e-9)
+        // The 5% live-bar contribution was committed once, not once per preview.
+        assertEquals(7.0, nextBar.autoThreshold!!, 1e-9)
+    }
+
+    @Test
     fun autoThresholdAccumulatesAbsoluteNegativeAndPositiveDeltas() {
         val calculator = LuxAlgoFvgAutoCalculator(autoThresholdEnabled = true)
         calculator.evaluate(input(open = 100.0, close = 101.0))
