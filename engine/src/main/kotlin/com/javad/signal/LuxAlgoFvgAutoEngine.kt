@@ -42,7 +42,10 @@ data class Signal(
 
 /**
  * Stateful port of LuxAlgo SMC's FVG/Auto Threshold calculation in
- * Timeframe = Chart mode. The Auto Threshold denominator is Pine's chart
+ * Timeframe = Chart mode (`fvg_tf = ""`). Javad's selected analysis interval
+ * is the chart interval, so `timeframe.change(fvg_tf)` is true for each new
+ * chart candle and the FVG source OHLC is taken from that same interval.
+ * The Auto Threshold denominator is Pine's chart
  * bar_index, not the number of bars in a locally fetched page. When processing
  * a partial history window, pass both its true first chart bar_index and the
  * cumulative absolute delta from all earlier chart bars. For a complete exchange
@@ -127,7 +130,7 @@ class LuxAlgoFvgAutoCalculator(
  * A completed candle at index i uses open/close from i-1 and high/low from i-2.
  */
 class LuxAlgoFvgAutoProcessor(
-    private val timeframe: AnalysisTimeframe,
+    private val chartTimeframe: AnalysisTimeframe,
     autoThresholdEnabled: Boolean = true,
     firstChartBarIndex: Long = 0L,
     initialCumulativeAbsoluteDelta: Double = 0.0
@@ -138,7 +141,7 @@ class LuxAlgoFvgAutoProcessor(
         initialCumulativeAbsoluteDelta
     )
     private val recentCandles = mutableListOf<MarketCandle>()
-    private val expectedIntervalMillis = timeframe.durationMillis
+    private val expectedIntervalMillis = chartTimeframe.durationMillis
 
     /** Re-evaluates the still-forming chart bar without committing ta.cum/bar_index. */
     fun preview(candle: MarketCandle): FvgEvaluation =
@@ -155,12 +158,12 @@ class LuxAlgoFvgAutoProcessor(
     private fun inputFor(candle: MarketCandle): FvgInput {
         require(candle.openTime > 0L) { "Candle open time must be positive" }
         require(candle.openTime % expectedIntervalMillis == 0L) {
-            "Candle open time is not aligned to the Toobit $timeframe interval"
+            "Candle open time is not aligned to the Toobit chart interval $chartTimeframe"
         }
         val previous = recentCandles.lastOrNull()
         if (previous != null) {
             require(candle.openTime - previous.openTime == expectedIntervalMillis) {
-                "Non-consecutive $timeframe candles: refusing to shift LuxAlgo bar index and Auto Threshold"
+                "Non-consecutive $chartTimeframe chart candles: refusing to shift LuxAlgo bar index and Auto Threshold"
             }
         }
         val twoBarsAgo = recentCandles.getOrNull(recentCandles.lastIndex - 1)
