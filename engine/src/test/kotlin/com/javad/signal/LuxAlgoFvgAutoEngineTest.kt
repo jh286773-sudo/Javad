@@ -79,6 +79,16 @@ class LuxAlgoFvgAutoEngineTest {
         assertEquals(FvgDirection.SHORT, gate.accept(short)?.direction)
     }
 
+    @Test
+    fun directionSuppressionIsIndependentPerContract() {
+        val gate = PerSymbolDirectionSignalGate()
+        val long = FvgEvaluation(10, 6.0, 4.0, true, false)
+
+        assertNotNull(gate.accept("BTCUSDT.P", long))
+        assertNull(gate.accept("BTCUSDT.P", long))
+        assertNotNull(gate.accept("ETHUSDT.P", long))
+    }
+
     private fun candle(open: Double, close: Double, high: Double, low: Double) = MarketCandle(
         openTime = 0L,
         open = open,
