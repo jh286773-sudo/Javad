@@ -170,7 +170,7 @@ class LuxAlgoFvgAutoProcessor(
         candles.map(::process)
 }
 
-/** Emits only a direction change; repeated same-direction FVGs are suppressed. */
+/** Emits every valid LuxAlgo FVG event, including consecutive events of the same direction. */
 class DirectionSignalGate {
     private var currentDirection: FvgDirection? = null
 
@@ -178,8 +178,6 @@ class DirectionSignalGate {
         if (evaluation.bullishFvg == evaluation.bearishFvg) return null
 
         val next = if (evaluation.bullishFvg) FvgDirection.LONG else FvgDirection.SHORT
-        if (next == currentDirection) return null
-
         val delta = evaluation.deltaPercent ?: return null
         val threshold = evaluation.autoThreshold ?: return null
         currentDirection = next
@@ -190,7 +188,7 @@ class DirectionSignalGate {
 }
 
 
-/** Keeps duplicate-suppression state independent for every selected contract. */
+/** Tracks direction independently per contract while preserving every raw LuxAlgo FVG event. */
 class PerSymbolDirectionSignalGate {
     private val gates = mutableMapOf<String, DirectionSignalGate>()
 
