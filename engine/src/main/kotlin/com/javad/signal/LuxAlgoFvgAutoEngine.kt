@@ -89,11 +89,20 @@ data class Signal(
  * cumulative absolute delta also starts at zero for that dataset.
  */
 class LuxAlgoFvgAutoCalculator(
-    private val autoThresholdEnabled: Boolean = true
+    private val autoThresholdEnabled: Boolean = true,
+    firstChartBarIndex: Long = 0L,
+    initialCumulativeAbsoluteDelta: Double = 0.0
 ) {
-    // Pine bar_index starts at zero on the first candle in the loaded dataset.
-    private var chartBarIndex: Long = 0L
-    private var cumulativeAbsoluteDelta: Double = 0.0
+    // Allows a paginated/partial history loader to resume the exact Pine state.
+    private var chartBarIndex: Long = firstChartBarIndex
+    private var cumulativeAbsoluteDelta: Double = initialCumulativeAbsoluteDelta
+
+    init {
+        require(firstChartBarIndex >= 0L) { "firstChartBarIndex cannot be negative" }
+        require(initialCumulativeAbsoluteDelta.isFinite() && initialCumulativeAbsoluteDelta >= 0.0) {
+            "initialCumulativeAbsoluteDelta must be finite and non-negative"
+        }
+    }
 
     /** Evaluate a live chart-bar update using Pine realtime rollback semantics. */
     fun preview(input: FvgInput): FvgEvaluation = calculate(input, commit = false)
