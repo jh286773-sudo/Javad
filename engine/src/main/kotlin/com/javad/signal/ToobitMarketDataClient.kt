@@ -97,7 +97,7 @@ class ToobitMarketDataClient(
                 "&interval=${encode(sourceInterval)}" +
                 "&startTime=$cursor&endTime=$endTimeMillis&limit=$pageLimit"
             val rows = getJson(path)
-            if (!rows.isArray || rows.isEmpty) break
+            if (!rows.isArray || rows.size() == 0) break
 
             val page = rows.map(::parseKline).sortedBy { it.openTime }
             val fresh = page.filter { it.openTime >= cursor && it.openTime < endTimeMillis }
