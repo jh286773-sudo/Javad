@@ -127,14 +127,7 @@ class LuxAlgoFvgAutoProcessor(
         initialCumulativeAbsoluteDelta
     )
     private val recentCandles = mutableListOf<MarketCandle>()
-    private val expectedIntervalMillis = when (timeframe) {
-        AnalysisTimeframe.ONE_MINUTE -> 60_000L
-        AnalysisTimeframe.FIVE_MINUTES -> 5L * 60_000L
-        AnalysisTimeframe.FIFTEEN_MINUTES -> 15L * 60_000L
-        AnalysisTimeframe.THIRTY_MINUTES -> 30L * 60_000L
-        AnalysisTimeframe.ONE_HOUR -> 60L * 60_000L
-        AnalysisTimeframe.TWO_HOURS -> 2L * 60L * 60_000L
-    }
+    private val expectedIntervalMillis = timeframe.durationMillis
 
     fun process(candle: MarketCandle): FvgEvaluation {
         require(candle.openTime > 0L) { "Candle open time must be positive" }
