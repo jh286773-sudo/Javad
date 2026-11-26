@@ -6,14 +6,15 @@ package com.javad.signal
  */
 enum class AnalysisTimeframe(
     val apiInterval: String,
-    val displayLabel: String
+    val displayLabel: String,
+    val durationMillis: Long
 ) {
-    ONE_MINUTE("1m", "1 دقیقه"),
-    FIVE_MINUTES("5m", "5 دقیقه"),
-    FIFTEEN_MINUTES("15m", "15 دقیقه"),
-    THIRTY_MINUTES("30m", "30 دقیقه"),
-    ONE_HOUR("1h", "1 ساعت"),
-    TWO_HOURS("2h", "2 ساعت")
+    ONE_MINUTE("1m", "1 دقیقه", 60_000L),
+    FIVE_MINUTES("5m", "5 دقیقه", 5L * 60_000L),
+    FIFTEEN_MINUTES("15m", "15 دقیقه", 15L * 60_000L),
+    THIRTY_MINUTES("30m", "30 دقیقه", 30L * 60_000L),
+    ONE_HOUR("1h", "1 ساعت", 60L * 60_000L),
+    TWO_HOURS("2h", "2 ساعت", 2L * 60L * 60_000L)
 }
 
 /**
