@@ -75,11 +75,10 @@ class SelectedTimeframeAnalysis(
     /**
      * Seeds one contract from ascending, gap-free Toobit history.
      *
-     * firstChartBarIndex and initialCumulativeAbsoluteDelta are the Pine
-     * history anchor: bar_index at the first supplied candle and ta.cum's
-     * absolute-delta sum immediately before that candle. Leave them at zero
-     * when the supplied history is the beginning of the chart dataset.
-     * Historical bars warm the calculation but do not emit alerts.
+     * The first supplied (earliest) candle is always bar_index 0 and the
+     * cumulative absolute-delta sum starts at zero, matching Pine's numbering
+     * from the beginning of its loaded chart dataset. Historical bars warm the
+     * calculation but do not emit alerts.
      */
     @Synchronized
     fun loadHistory(
