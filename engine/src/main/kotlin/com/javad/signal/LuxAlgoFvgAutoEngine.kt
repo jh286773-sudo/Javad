@@ -9,14 +9,22 @@ package com.javad.signal
 
 import kotlin.math.abs
 
+/**
+ * One completed candle from Javad's single selected analysis timeframe.
+ *
+ * This models LuxAlgo's Timeframe = Chart setting: the requested FVG
+ * timeframe is the chart timeframe itself, so timeframe.change(fvg_tf)
+ * is true once for each chart-timeframe bar. The caller must provide these
+ * values in chronological order, with the same candle indexing/history
+ * convention as the reference chart.
+ */
 data class FvgInput(
     val previousOpen: Double,
     val previousClose: Double,
     val currentHigh: Double,
     val currentLow: Double,
     val highTwoBarsAgo: Double,
-    val lowTwoBarsAgo: Double,
-    val newFvgTimeframe: Boolean
+    val lowTwoBarsAgo: Double
 )
 
 enum class FvgDirection { LONG, SHORT }
@@ -37,10 +45,14 @@ data class Signal(
 )
 
 /**
- * Stateful port of the LuxAlgo SMC FVG/Auto Threshold calculation.
- * Feed every chart-timeframe bar in chronological order, starting from the
- * same historical starting point as the reference chart. Do not reset this
- * instance between bars: both ta.cum() and bar_index are cumulative.
+ * Stateful port of LuxAlgo SMC's FVG/Auto Threshold calculation in
+ * Timeframe = Chart mode.
+ *
+ * Call evaluate exactly once per chart-timeframe candle, in chronological
+ * order, starting at the same historical bar_index origin as the reference.
+ * In Chart mode timeframe.change(fvg_tf) is true on every chart bar, so each
+ * bar's abs(deltaPercent) contributes to ta.cum(). Do not reset this
+ * calculator between bars: both the cumulative sum and bar_index persist.
  */
 class LuxAlgoFvgAutoCalculator(
     private val autoThresholdEnabled: Boolean = true
@@ -61,9 +73,8 @@ class LuxAlgoFvgAutoCalculator(
         val deltaPercent = (input.previousClose - input.previousOpen) /
             input.previousOpen * 100.0
 
-        if (input.newFvgTimeframe) {
-            cumulativeAbsoluteDelta += abs(deltaPercent)
-        }
+        // Chart mode: timeframe.change(fvg_tf) is true for every chart bar.
+        cumulativeAbsoluteDelta += abs(deltaPercent)
 
         // Pine's bar_index is zero on the first bar; division by zero yields na.
         val threshold = when {
@@ -73,13 +84,11 @@ class LuxAlgoFvgAutoCalculator(
         }
 
         val usableThreshold = threshold ?: Double.POSITIVE_INFINITY
-        val bullish = input.newFvgTimeframe &&
-            input.currentLow > input.highTwoBarsAgo &&
+        val bullish = input.currentLow > input.highTwoBarsAgo &&
             input.previousClose > input.highTwoBarsAgo &&
             deltaPercent > usableThreshold
 
-        val bearish = input.newFvgTimeframe &&
-            input.currentHigh < input.lowTwoBarsAgo &&
+        val bearish = input.currentHigh < input.lowTwoBarsAgo &&
             input.previousClose < input.lowTwoBarsAgo &&
             -deltaPercent > usableThreshold
 
