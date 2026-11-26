@@ -13,12 +13,14 @@ class LuxAlgoFvgAutoEngineTest {
         val calculator = LuxAlgoFvgAutoCalculator(autoThresholdEnabled = true)
         val first = calculator.evaluate(input(open = 100.0, close = 100.1, newTf = true))
         val second = calculator.evaluate(input(open = 100.0, close = 100.1, newTf = true))
-        val third = calculator.evaluate(input(open = 100.0, close = 106.0, newTf = true))
+        val third = calculator.evaluate(input(open = 100.0, close = 100.1, newTf = true))
+        val fourth = calculator.evaluate(input(open = 100.0, close = 106.0, newTf = true))
 
         assertNull(first.autoThreshold) // bar_index == 0, Pine result is na
-        assertEquals(0.2, second.autoThreshold!!, 1e-9)
-        assertEquals(4.133333333333333, third.autoThreshold!!, 1e-9)
-        assertTrue(third.bullishFvg)
+        assertEquals(0.4, second.autoThreshold!!, 1e-9)
+        assertEquals(0.3, third.autoThreshold!!, 1e-9)
+        assertEquals(4.2, fourth.autoThreshold!!, 1e-9)
+        assertTrue(fourth.bullishFvg)
     }
 
     @Test
