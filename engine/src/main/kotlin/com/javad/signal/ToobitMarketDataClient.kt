@@ -98,14 +98,10 @@ class ToobitMarketDataClient(
     }
 
     /**
-     * Loads every completed candle currently returned by Toobit's kline
-     * endpoint for this contract/timeframe. The endpoint is paged backwards
-     * from the latest completed candle until it returns no older page; the
-     * result is then returned in ascending order. Its earliest candle becomes
-     * the dataset anchor (Pine bar_index 0).
-     *
-     * Toobit's kline endpoint caps each response at 1,000 rows. No arbitrary
-     * 5,000-bar window is applied.
+     * Loads completed candles inside JAVAD's observed TradingView-style rolling
+     * window. The left boundary is timeframe-specific and advances by one UTC
+     * day at each UTC midnight. Forward pagination preserves one continuous
+     * dataset, so the first returned candle is Pine bar_index 0.
      */
     fun getAllHistoricalCandles(
         javadSymbol: String,
@@ -116,37 +112,22 @@ class ToobitMarketDataClient(
         require(endTimeMillis > 0L) { "endTimeMillis must be positive" }
         require(pageLimit in 1..1000) { "Toobit kline page limit must be between 1 and 1000" }
         val serverTime = getServerTimeMillis()
-        val historyEnd = TradingViewBasicHistoryWindow.endTimeMillis(
-            timeframe = timeframe,
-            serverTimeMillis = minOf(serverTime, endTimeMillis)
-        )
-        val contract = findContract(javadSymbol)
-        val sourceDuration = timeframe.durationMillis
-        val sourceCandles = collectPagesBackward(
-            endTimeExclusiveMillis = historyEnd,
-            sourceDuration = sourceDuration,
-            pageLimit = pageLimit
-        ) { cursorExclusive ->
-            val requestPath = "/quote/v1/klines" +
-                "?symbol=${encode(contract.exchangeSymbol)}" +
-                "&interval=${encode(timeframe.apiInterval)}" +
-                "&startTime=0&endTime=$cursorExclusive&limit=$pageLimit"
-            val rows = getJson(requestPath)
-            if (!rows.isArray) {
-                throw ToobitApiException("Toobit returned a non-array kline page")
-            }
-            rows.map(::parseKline)
-        }
-
-        val completed = sourceCandles.filter {
-            it.openTime + sourceDuration <= minOf(serverTime, historyEnd)
-        }
-        if (completed.isEmpty()) {
+        val windowTime = minOf(serverTime, endTimeMillis)
+        val historyEnd = TradingViewBasicHistoryWindow.endTimeMillis(timeframe, windowTime)
+        val historyStart = TradingViewBasicHistoryWindow.startTimeMillis(timeframe, windowTime)
+        if (historyStart >= historyEnd) {
             throw ToobitApiException(
-                "Toobit returned no completed historical candles for $javadSymbol at ${timeframe.apiInterval}"
+                "Configured ${timeframe.apiInterval} TradingView history window has no completed candles yet"
             )
         }
-        return completed
+        return getHistoricalCandlesAtServerTime(
+            javadSymbol = javadSymbol,
+            timeframe = timeframe,
+            startTimeMillis = historyStart,
+            endTimeMillis = historyEnd,
+            pageLimit = pageLimit,
+            serverTimeMillis = serverTime
+        )
     }
 
     private fun getHistoricalCandlesAtServerTime(

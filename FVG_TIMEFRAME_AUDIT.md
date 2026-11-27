@@ -2,6 +2,8 @@
 
 ## Scope
 
+> **History-window rule update:** Sections 8, 11, and 12 below describe the earlier full-available-history design and are superseded for production loading by Section 13. The current production rule is the user's observed daily UTC rolling window, not the exchange's full lifetime history.
+
 This audit covers only two components: the LuxAlgo Smart Money Concepts Fair Value Gap (FVG) calculation and Auto Threshold, plus their Chart-mode timeframe mapping, candle history indexing, and live-candle handling. FVG's gap test references three candles; those are price inputs within FVG, not three separate indicators. No EMA, RSI, ICT, or other strategy is included.
 
 The implementation reference is the publicly available Smart Money Concepts [LuxAlgo] Pine source mirror at:
@@ -183,3 +185,26 @@ This rule applies independently to every selected Toobit perpetual contract and 
 The moving latest boundary and the discovered earliest boundary must always be recorded with their candle timestamps per symbol/timeframe. A refresh is successful only after timestamp continuity and duplicate/order validation. The first boundary is stable unless the exchange makes older data available; the last boundary advances as new candles close.
 
 **Implementation/verification status:** every `start()` fetches the full available REST history for each selected symbol/timeframe and rebuilds Heikin Ashi, `bar_index`, cumulative Auto Threshold, and FVG state before opening the live stream. The latest completed REST candle seeds each symbol's WebSocket cursor, so the first live update is checked for missing candles rather than accepted as an unanchored first event. A detected startup/reconnect gap triggers REST backfill before the current forming candle is previewed. Each newly closed candle is committed once in chronological order; same-timestamp or older updates are ignored by the analysis cursor. Forming-candle previews use calculator/processor rollback semantics and do not commit Heikin Ashi recursion, `bar_index`, cumulative Auto Threshold, or FVG arrays. If Toobit exposes an earlier first candle, or any candle is missing/revised/changed in the periodic full REST snapshot, the engine rebuilds all dependent state from the newly fetched earliest candle. These code paths are implemented but still require runtime/API verification. The chart-vs-REST first/last timestamp and OHLC comparison remains a separate acceptance gate.
+
+
+## 13. Superseding production rule — observed daily UTC rolling TradingView window
+
+The user directly observed the chart's left history boundary moving forward by one UTC day while the window length remains stable. JAVAD now uses these observed first-candle anchors at the 2026-11-27 00:00 UTC reference snapshot:
+
+| Toobit interval | First candle at reference snapshot | Candles removed from the left edge per UTC day |
+|---|---|---:|
+| 1m | 2026-11-23 00:00 UTC | 1,440 |
+| 5m | 2026-11-09 00:00 UTC | 288 |
+| 15m | 2026-10-01 00:00 UTC | 96 |
+| 30m | 2025-01-01 00:00 UTC | 48 |
+| 1h | 2025-01-01 00:00 UTC | 24 |
+| 2h | 2025-01-01 00:00 UTC | 12 |
+| 4h | 2024-01-01 00:00 UTC | 6 |
+
+At each UTC midnight after the reference snapshot, the configured start timestamp advances by exactly 86,400,000 milliseconds. The exclusive end boundary is rounded down to the selected interval so the currently forming candle is excluded from the committed history seed. The resulting continuous candle list is loaded oldest-first; its first candle is bar_index 0, the first Heikin Ashi candle, and the origin of ta.cum. On a new UTC day the engine reloads the entire shifted window and rebuilds Heikin Ashi recursion, FVG arrays, bar index, and Auto cumulative state from the new first candle. It does not simply drop old candles while retaining the previous cumulative state.
+
+The expected completed candle counts at the reference instant 2026-11-27 00:00 UTC are 5,760 (1m), 5,184 (5m), 5,472 (15m), 33,360 (30m), 16,680 (1h), 8,340 (2h), and 6,366 (4h). The number removed at each daily shift is 86,400,000 / timeframe.durationMillis.
+
+Toobit's official USDT-M futures interval list includes 1m, 5m, 15m, 30m, 1h, 2h, and 4h; it does not list a native 3h interval. Therefore 3h is not exposed as a selectable native Toobit interval in this implementation. A synthetic 3h aggregation would require a separate, explicitly tested aggregation and live-streaming path and is not silently substituted.
+
+This is a deterministic compatibility rule built from the user's observed TradingView chart boundaries. It does not claim that TradingView's internal Pine dataset selection is universally identical for every account, symbol, or plan. The separate parity acceptance gate remains: compare the actual Toobit chart and REST candle timestamps and OHLC values for the same symbol/timeframe. Until that comparison passes, formula and history-window alignment are implemented but exact numerical parity is not certified.
