@@ -98,8 +98,7 @@ class ToobitSignalMonitor(
                 }
                 analysis.loadHistory(
                     update.javadSymbol,
-                    history,
-                    preserveLastSignalCandle = true
+                    history
                 )
                 if (update.isClosed) return
                 analysis.onCandleUpdate(update.copy(gapDetected = false))?.let(onSignal)
@@ -152,8 +151,7 @@ class ToobitSignalMonitor(
                 if (oldRange != newRange) {
                     analysis.loadHistory(
                         contract.javadSymbol,
-                        history,
-                        preserveLastSignalCandle = true
+                        history
                     )
                 }
             } catch (error: Throwable) {
