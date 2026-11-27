@@ -110,6 +110,10 @@ class SelectedTimeframeAnalysisTest {
         )
         assertEquals(
             FvgDirection.LONG,
+            analysis.onCandleUpdate(update(firstLong))?.signal?.direction
+        )
+        assertEquals(
+            FvgDirection.LONG,
             analysis.onCandleUpdate(update(firstLong, closed = true))?.signal?.direction
         )
 
