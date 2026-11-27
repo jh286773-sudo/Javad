@@ -25,6 +25,7 @@ class ToobitLiveHistoryParityTest {
             pageLimit = 1_000
         )
 
+        println("TOOBIT_FULL_HISTORY_RECEIVED symbol=BTCUSDT.P count=${candles.size} first=${candles.firstOrNull()?.openTime} last=${candles.lastOrNull()?.openTime}")
         assertTrue(candles.size > 3_500, "Toobit full BTC history must exceed the 3,500-candle sample")
         candles.zipWithNext().forEach { (previous, next) ->
             assertEquals(interval, next.openTime - previous.openTime, "BTC full-history gap")
@@ -97,13 +98,18 @@ class ToobitLiveHistoryParityTest {
         val startTime = endTime - 3_500L * interval
 
         listOf("BTCUSDT.P", "ETHUSDT.P").forEach { symbol ->
-            val candles = client.getHistoricalCandles(
-                javadSymbol = symbol,
-                timeframe = timeframe,
-                startTimeMillis = startTime,
-                endTimeMillis = endTime,
-                pageLimit = 1_000
-            )
+            val candles = try {
+                client.getHistoricalCandles(
+                    javadSymbol = symbol,
+                    timeframe = timeframe,
+                    startTimeMillis = startTime,
+                    endTimeMillis = endTime,
+                    pageLimit = 1_000
+                )
+            } catch (error: Exception) {
+                println("TOOBIT_HISTORY_ERROR symbol=$symbol type=${error::class.simpleName} message=${error.message}")
+                throw error
+            }
 
             assertEquals(3_500, candles.size, "$symbol must return exactly 3,500 completed candles")
             assertEquals(startTime, candles.first().openTime)
