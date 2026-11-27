@@ -157,7 +157,16 @@ class SelectedTimeframeAnalysisTest {
         val longCandle = bar(3, 102.204, 102.3, 102.5, 100.5)
 
         // The HA-derived FVG + Auto condition is true on this forming candle.
-        repeat(3) {
+        val firstLongSignal = longAnalysis.onCandleUpdate(update(longCandle))!!
+        assertEquals(FvgDirection.LONG, firstLongSignal.signal.direction)
+        val lastCommittedHa = longAnalysis.heikinAshiHistory("BTCUSDT.P").last()
+        assertEquals((lastCommittedHa.open + lastCommittedHa.close) / 2.0, firstLongSignal.candle.open, 1e-12)
+        assertEquals(
+            (longCandle.open + longCandle.high + longCandle.low + longCandle.close) / 4.0,
+            firstLongSignal.candle.close,
+            1e-12
+        )
+        repeat(2) {
             assertEquals(FvgDirection.LONG, longAnalysis.onCandleUpdate(update(longCandle))?.signal?.direction)
         }
         assertEquals(FvgDirection.LONG, longAnalysis.onCandleUpdate(update(longCandle, closed = true))?.signal?.direction)
