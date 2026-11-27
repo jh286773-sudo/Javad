@@ -41,6 +41,33 @@ class LuxAlgoFvgAutoEngineTest {
     }
 
     @Test
+    fun processorCanResumeAutoThresholdAcrossPaginatedHistoryWithoutResettingState() {
+        val processor = LuxAlgoFvgAutoProcessor(
+            chartTimeframe = AnalysisTimeframe.FIFTEEN_MINUTES,
+            autoThresholdEnabled = true,
+            firstChartBarIndex = 500L,
+            initialCumulativeAbsoluteDelta = 25.0
+        )
+        val start = 1_700_000_100_000L
+        val firstPageNextCandle = candle(
+            100.0, 101.0, 105.0, 95.0, start
+        )
+
+        val resumed = processor.process(firstPageNextCandle)
+
+        // Previous cumulative sum 25 + this candle's 1% absolute delta.
+        // Pine bar_index 500 is the denominator; current contribution is included.
+        assertEquals(500L, resumed.chartBarIndex)
+        assertEquals(26.0 / 500.0 * 2.0, resumed.autoThreshold!!, 1e-12)
+
+        val following = processor.process(
+            candle(100.0, 102.0, 106.0, 96.0, start + 15L * 60_000L)
+        )
+        assertEquals(501L, following.chartBarIndex)
+        assertEquals(28.0 / 501.0 * 2.0, following.autoThreshold!!, 1e-12)
+    }
+
+    @Test
     fun realtimePreviewUsesPineRollbackAndDoesNotDoubleAccumulateOrAdvanceBarIndex() {
         val calculator = LuxAlgoFvgAutoCalculator(autoThresholdEnabled = true)
         calculator.evaluate(input(open = 100.0, close = 101.0))

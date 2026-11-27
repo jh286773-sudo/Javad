@@ -93,7 +93,9 @@ class SelectedTimeframeAnalysis(
     fun loadHistory(
         symbol: String,
         candles: List<MarketCandle>,
-        preserveSignalDirection: Boolean = false
+        preserveSignalDirection: Boolean = false,
+        firstChartBarIndex: Long = 0L,
+        initialCumulativeAbsoluteDelta: Double = 0.0
     ) {
         val normalized = normalizeSelectedSymbol(symbol)
         require(candles.isNotEmpty()) {
@@ -116,7 +118,9 @@ class SelectedTimeframeAnalysis(
 
         val processor = LuxAlgoFvgAutoProcessor(
             chartTimeframe = settings.selectedTimeframe,
-            autoThresholdEnabled = autoThresholdEnabled
+            autoThresholdEnabled = autoThresholdEnabled,
+            firstChartBarIndex = firstChartBarIndex,
+            initialCumulativeAbsoluteDelta = initialCumulativeAbsoluteDelta
         )
         val historyEvaluations = processor.processHistory(candles)
 

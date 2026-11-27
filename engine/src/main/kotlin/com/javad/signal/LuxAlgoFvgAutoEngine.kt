@@ -178,9 +178,15 @@ class LuxAlgoFvgAutoCalculator(
 class LuxAlgoFvgAutoProcessor(
     private val chartTimeframe: AnalysisTimeframe,
     autoThresholdEnabled: Boolean = true,
-    private val fvgExtend: Int = 1
+    private val fvgExtend: Int = 1,
+    firstChartBarIndex: Long = 0L,
+    initialCumulativeAbsoluteDelta: Double = 0.0
 ) {
-    private val calculator = LuxAlgoFvgAutoCalculator(autoThresholdEnabled)
+    private val calculator = LuxAlgoFvgAutoCalculator(
+        autoThresholdEnabled = autoThresholdEnabled,
+        firstChartBarIndex = firstChartBarIndex,
+        initialCumulativeAbsoluteDelta = initialCumulativeAbsoluteDelta
+    )
     private val recentCandles = mutableListOf<MarketCandle>()
     private val bullishZones = mutableListOf<FvgZone>()
     private val bearishZones = mutableListOf<FvgZone>()
