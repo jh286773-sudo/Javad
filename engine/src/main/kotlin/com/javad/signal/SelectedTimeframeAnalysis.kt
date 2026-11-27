@@ -122,7 +122,13 @@ class SelectedTimeframeAnalysis(
             firstChartBarIndex = firstChartBarIndex,
             initialCumulativeAbsoluteDelta = initialCumulativeAbsoluteDelta
         )
-        val historyEvaluations = processor.processHistory(candles)
+        // Warm the full dataset in one continuous pass but retain only the
+        // final snapshot; keeping every FVG-array snapshot would waste memory
+        // on long exchange histories.
+        var lastHistoryEvaluation: FvgEvaluation? = null
+        candles.forEach { candle ->
+            lastHistoryEvaluation = processor.process(candle)
+        }
 
         processors[normalized] = processor
         lastProcessedOpenTime[normalized] = candles.last().openTime
@@ -132,7 +138,7 @@ class SelectedTimeframeAnalysis(
         } else {
             lastEmittedDirection.remove(normalized)
         }
-        historyEvaluations.lastOrNull()?.fvgState?.let { latestFvgStates[normalized] = it }
+        lastHistoryEvaluation?.fvgState?.let { latestFvgStates[normalized] = it }
     }
 
     /**
