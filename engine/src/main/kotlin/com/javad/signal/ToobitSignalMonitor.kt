@@ -6,21 +6,18 @@ import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.ThreadFactory
 import java.util.concurrent.TimeUnit
-import java.time.Instant
-import java.time.ZoneOffset
 
 /**
- * Connects the existing Toobit market-data and FVG/Auto engine into one
+ * Connects the Toobit market-data client and the FVG/Auto engine into one
  * read-only monitoring lifecycle.
  *
- * Call start() from a background thread: it downloads the configured rolling
- * TradingView-style history window for each selected USDT perpetual, warms
- * each symbol's independent Pine-style bar_index/ta.cum state, and only then
- * opens the live kline stream.
+ * Call start() from a background thread: for each selected perpetual and
+ * timeframe, it fetches the latest closed Toobit candle, calculates the
+ * adaptive history size from the remaining slots to next UTC midnight, loads
+ * the exact older history, and only then opens the live kline stream.
  *
- * On a detected stream gap or UTC-day window rollover, the affected history
- * is reloaded and its dataset origin is rebuilt before live analysis resumes. This avoids continuing
- * with a shifted bar index or an incomplete cumulative Auto Threshold.
+ * A detected stream gap or UTC-day rollover reloads the affected adaptive
+ * history window and rebuilds its dataset origin before live analysis resumes.
  */
 class ToobitSignalMonitor(
     private val marketData: ToobitMarketDataClient,
@@ -48,10 +45,12 @@ class ToobitSignalMonitor(
                 .filter { it.javadSymbol in selected }
             val missing = selected - contracts.map { it.javadSymbol }.toSet()
             require(missing.isEmpty()) {
-                "Unsupported or inactive Toobit USDT perpetual contracts: ${missing.sorted().joinToString()}"
+                "Unsupported or inactive Toobit USDT perpetual contracts: " +
+                    missing.sorted().joinToString()
             }
 
-            // Use exchange time so device-clock drift cannot truncate the history window.
+            // The loader reads Toobit's server clock and discovers the latest
+            // closed candle separately for each selected contract.
             val endTime = marketData.getServerTimeMillis()
             val latestCompletedBySymbol = mutableMapOf<String, MarketCandle>()
             contracts.forEach { contract ->
@@ -61,11 +60,8 @@ class ToobitSignalMonitor(
                     endTimeMillis = endTime
                 )
                 require(history.isNotEmpty()) {
-                    "Toobit returned no completed history for ${contract.javadSymbol}"
+                    "Toobit returned no completed history for " + contract.javadSymbol
                 }
-                // Every start rebuilds the configured rolling window from its
-                // first candle. The final candle seeds the live stream
-                // cursor so startup omissions are detected immediately.
                 analysis.loadHistory(contract.javadSymbol, history)
                 latestCompletedBySymbol[contract.javadSymbol] = history.last()
             }
@@ -99,10 +95,6 @@ class ToobitSignalMonitor(
     private fun handleUpdate(update: ToobitCandleUpdate) {
         try {
             if (update.gapDetected) {
-                // The stream emits the prior candle as closed and then the
-                // current candle as preview. Recover on the preview only:
-                // REST history will include the just-closed candle, avoiding
-                // two backfills for the same detected gap.
                 if (update.isClosed) return
                 val endTime = marketData.getServerTimeMillis()
                 val history = marketData.getAllHistoricalCandles(
@@ -111,26 +103,22 @@ class ToobitSignalMonitor(
                     endTimeMillis = endTime
                 )
                 require(history.isNotEmpty()) {
-                    "Toobit returned no recovery history for ${update.javadSymbol}"
+                    "Toobit returned no recovery history for " + update.javadSymbol
                 }
-                analysis.loadHistory(
-                    update.javadSymbol,
-                    history
-                )
+                analysis.loadHistory(update.javadSymbol, history)
                 analysis.onCandleUpdate(update.copy(gapDetected = false))?.let(onSignal)
                 return
             }
 
             analysis.onCandleUpdate(update)?.let(onSignal)
         } catch (error: Throwable) {
-            onError("Signal analysis paused for ${update.javadSymbol}; recovery is required", error)
+            onError("Signal analysis paused for " + update.javadSymbol + "; recovery is required", error)
         }
     }
 
     /**
-     * REST reconciliation is a safety net for silent WebSocket omissions and
-     * exchange-side revisions. A separate UTC-midnight task forces the rolling
-     * left edge to advance on the observed daily boundary.
+     * REST reconciliation detects silent WebSocket omissions and exchange-side
+     * revisions. A UTC-midnight refresh recomputes the adaptive left boundary.
      */
     @Synchronized
     private fun startPeriodicReconciliation(timeframe: AnalysisTimeframe) {
@@ -146,17 +134,8 @@ class ToobitSignalMonitor(
             TimeUnit.MILLISECONDS
         )
 
-        // Refresh the moving left edge exactly at each next UTC midnight,
-        // then once per UTC day. The shorter safety reconciliation above remains
-        // active for stream omissions and exchange-side candle revisions.
         val serverNow = marketData.getServerTimeMillis()
-        val nextUtcMidnight = Instant.ofEpochMilli(serverNow)
-            .atZone(ZoneOffset.UTC)
-            .toLocalDate()
-            .plusDays(1)
-            .atStartOfDay(ZoneOffset.UTC)
-            .toInstant()
-            .toEpochMilli()
+        val nextUtcMidnight = TradingViewBasicHistoryWindow.nextUtcMidnightMillis(serverNow)
         val initialDailyDelay = (nextUtcMidnight - serverNow).coerceAtLeast(1L)
         val oneDayMillis = 24L * 60L * 60L * 1000L
         dailyWindowRefreshTask = executor.scheduleAtFixedRate(
@@ -180,20 +159,15 @@ class ToobitSignalMonitor(
                     endTimeMillis = endTime
                 )
                 require(history.isNotEmpty()) {
-                    "Toobit returned no reconciliation history for ${contract.javadSymbol}"
+                    "Toobit returned no reconciliation history for " + contract.javadSymbol
                 }
-                // Compare every candle, not only the first/last timestamps.
-                // Internal gaps or revised OHLC values also invalidate HA,
-                // bar_index and cumulative Auto Threshold state.
                 if (!analysis.historyMatches(contract.javadSymbol, history)) {
-                    analysis.loadHistory(
-                        contract.javadSymbol,
-                        history
-                    )
+                    analysis.loadHistory(contract.javadSymbol, history)
                 }
             } catch (error: Throwable) {
                 onError(
-                    "History reconciliation failed for ${contract.javadSymbol}; live state was not replaced",
+                    "History reconciliation failed for " + contract.javadSymbol +
+                        "; live state was not replaced",
                     error
                 )
             }
