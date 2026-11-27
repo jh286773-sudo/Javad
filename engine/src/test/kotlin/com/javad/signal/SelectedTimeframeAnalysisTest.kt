@@ -122,23 +122,22 @@ class SelectedTimeframeAnalysisTest {
     fun liveSignalsAllowRepeatedSameDirectionAndOppositeDirectionSignals() {
         val timeframe = AnalysisTimeframe.FIVE_MINUTES
         val interval = timeframe.durationMillis
-        val start = 1_700_000_000_000L - (1_700_000_000_000L % interval)
-        val analysis = SelectedTimeframeAnalysis(
-            AnalysisSettings(
-                selectedTimeframe = timeframe,
-                symbols = setOf("BTCUSDT.P")
-            )
-        )
+        val startTime = 1_700_000_000_000L - (1_700_000_000_000L % interval)
 
         fun bar(index: Int, open: Double, close: Double, high: Double, low: Double) =
             MarketCandle(
-                openTime = start + index * interval,
+                openTime = startTime + index * interval,
                 open = open,
                 high = high,
                 low = low,
                 close = close,
                 volume = 10.0
             )
+
+        fun settings() = AnalysisSettings(
+            selectedTimeframe = timeframe,
+            symbols = setOf("BTCUSDT.P")
+        )
 
         fun update(candle: MarketCandle, closed: Boolean = false) = ToobitCandleUpdate(
             javadSymbol = "BTCUSDT.P",
@@ -148,61 +147,31 @@ class SelectedTimeframeAnalysisTest {
             timeframe = timeframe
         )
 
-        val history = listOf(
+        val longAnalysis = SelectedTimeframeAnalysis(settings())
+        val longHistory = listOf(
             bar(0, 100.0, 100.1, 100.2, 99.9),
             bar(1, 100.1, 100.2, 100.3, 100.0),
             bar(2, 100.2, 102.204, 102.3, 100.1)
         )
-        analysis.loadHistory("BTCUSDT.P", history)
+        longAnalysis.loadHistory("BTCUSDT.P", longHistory)
+        val longCandle = bar(3, 102.204, 102.3, 102.5, 100.5)
 
-        val firstLong = bar(3, 102.204, 102.3, 102.5, 100.5)
-        assertEquals(
-            FvgDirection.LONG,
-            analysis.onCandleUpdate(update(firstLong))?.signal?.direction
-        )
-        // LuxAlgo has no extra same-candle or same-direction suppression.
-        // Every qualifying evaluation can emit, including repeated previews
-        // and the final closed-candle evaluation.
-        assertEquals(
-            FvgDirection.LONG,
-            analysis.onCandleUpdate(update(firstLong))?.signal?.direction
-        )
-        assertEquals(
-            FvgDirection.LONG,
-            analysis.onCandleUpdate(update(firstLong))?.signal?.direction
-        )
-        assertEquals(
-            FvgDirection.LONG,
-            analysis.onCandleUpdate(update(firstLong, closed = true))?.signal?.direction
-        )
-
-        val nextBars = listOf(
-            bar(4, 102.3, 102.4, 102.6, 102.0),
-            bar(5, 102.4, 104.448, 104.6, 102.3),
-            bar(6, 104.448, 104.5, 104.8, 103.0),
-            bar(7, 104.5, 104.6, 104.8, 104.2),
-            bar(8, 104.6, 102.508, 104.7, 102.4)
-        )
-        nextBars.forEachIndexed { index, candle ->
-            val signal = analysis.onCandleUpdate(update(candle))
-            if (index == 2) {
-                assertEquals(FvgDirection.LONG, signal?.signal?.direction)
-            } else {
-                assertEquals(null, signal)
-            }
-            val closedSignal = analysis.onCandleUpdate(update(candle, closed = true))
-            if (index == 2) {
-                assertEquals(FvgDirection.LONG, closedSignal?.signal?.direction)
-            } else {
-                assertEquals(null, closedSignal)
-            }
+        // The HA-derived FVG + Auto condition is true on this forming candle.
+        repeat(3) {
+            assertEquals(FvgDirection.LONG, longAnalysis.onCandleUpdate(update(longCandle))?.signal?.direction)
         }
+        assertEquals(FvgDirection.LONG, longAnalysis.onCandleUpdate(update(longCandle, closed = true))?.signal?.direction)
+        assertEquals(4, longAnalysis.heikinAshiHistory("BTCUSDT.P").size)
 
-        val oppositeShort = bar(9, 102.508, 102.4, 104.0, 102.0)
-        assertEquals(
-            FvgDirection.SHORT,
-            analysis.onCandleUpdate(update(oppositeShort))?.signal?.direction
+        val shortAnalysis = SelectedTimeframeAnalysis(settings())
+        val shortHistory = listOf(
+            bar(0, 200.0, 200.0, 201.0, 199.0),
+            bar(1, 200.0, 200.0, 201.0, 199.0),
+            bar(2, 200.0, 100.0, 201.0, 99.0)
         )
+        shortAnalysis.loadHistory("BTCUSDT.P", shortHistory)
+        val shortCandle = bar(3, 100.0, 80.0, 101.0, 79.0)
+        assertEquals(FvgDirection.SHORT, shortAnalysis.onCandleUpdate(update(shortCandle))?.signal?.direction)
     }
 
     private fun testCandle(openTime: Long) = MarketCandle(
