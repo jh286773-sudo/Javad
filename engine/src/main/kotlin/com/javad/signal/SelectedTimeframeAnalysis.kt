@@ -51,7 +51,6 @@ class SelectedTimeframeAnalysis(
     // Raw Toobit snapshots are retained only to detect exchange-side revisions during REST reconciliation.
     // Strategy calculations and the separately retained derived series are Heikin Ashi only.
     private val committedHistory = mutableMapOf<String, List<MarketCandle>>()
-    private val committedHeikinAshiHistory = mutableMapOf<String, List<MarketCandle>>()
 
     @Synchronized
     fun currentSettings(): AnalysisSettings = settings
@@ -74,7 +73,6 @@ class SelectedTimeframeAnalysis(
             firstProcessedOpenTime.clear()
             latestFvgStates.clear()
             committedHistory.clear()
-            committedHeikinAshiHistory.clear()
         } else {
             removedSymbols.forEach { symbol ->
                 processors.remove(symbol)
@@ -82,7 +80,6 @@ class SelectedTimeframeAnalysis(
                 firstProcessedOpenTime.remove(symbol)
                 latestFvgStates.remove(symbol)
                 committedHistory.remove(symbol)
-                committedHeikinAshiHistory.remove(symbol)
             }
         }
     }
@@ -138,7 +135,6 @@ class SelectedTimeframeAnalysis(
         firstProcessedOpenTime[normalized] = candles.first().openTime
         lastProcessedOpenTime[normalized] = candles.last().openTime
         committedHistory[normalized] = candles.toList() // source snapshot for reconciliation only
-        committedHeikinAshiHistory[normalized] = processor.committedHeikinAshiHistory()
         lastHistoryEvaluation?.fvgState?.let { latestFvgStates[normalized] = it }
     }
 
@@ -198,10 +194,6 @@ class SelectedTimeframeAnalysis(
             lastProcessedOpenTime[normalized] = update.candle.openTime
             committedHistory[normalized] =
                 committedHistory[normalized].orEmpty() + update.candle // raw source snapshot; never used by FVG/Auto
-            evaluation.analysisCandle?.let { haCandle ->
-                committedHeikinAshiHistory[normalized] =
-                    committedHeikinAshiHistory[normalized].orEmpty() + haCandle
-            }
         }
 
         // LuxAlgo evaluates the current bar intrabar. A qualifying preview
@@ -242,7 +234,7 @@ class SelectedTimeframeAnalysis(
     /** Complete committed Heikin Ashi calculation series, oldest candle first. */
     @Synchronized
     fun heikinAshiHistory(symbol: String): List<MarketCandle> =
-        committedHeikinAshiHistory[symbol.trim().uppercase()].orEmpty().toList()
+        processors[symbol.trim().uppercase()]?.committedHeikinAshiHistory().orEmpty()
 
     /** Earliest and latest committed source candle timestamps for REST reconciliation. */
     @Synchronized
@@ -267,6 +259,5 @@ class SelectedTimeframeAnalysis(
         firstProcessedOpenTime.remove(symbol)
         latestFvgStates.remove(symbol)
         committedHistory.remove(symbol)
-        committedHeikinAshiHistory.remove(symbol)
     }
 }
