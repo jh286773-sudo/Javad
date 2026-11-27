@@ -106,7 +106,7 @@ class ToobitMarketDataClientTest {
         }
 
         assertEquals(6_001, collected.size)
-        assertEquals(7, calls.size) // Six data pages plus the final empty page.
+        assertEquals(8, calls.size) // Seven data pages plus the final empty page.
         assertEquals(candles.first().openTime, collected.first().openTime)
         assertEquals(candles.last().openTime, collected.last().openTime)
         assertEquals(candles, collected)
@@ -125,7 +125,7 @@ class ToobitMarketDataClientTest {
             pageLimit = 3
         ) { cursor ->
             calls++
-            candles.filter { it.openTime < cursor }.takeLast(if (calls == 1) 2 else 3)
+            candles.filter { it.openTime < cursor }.takeLast(if (calls <= 2) 2 else 3)
         }
 
         assertEquals(4, calls) // 2 + 2 + 1 candles, then an empty page.
