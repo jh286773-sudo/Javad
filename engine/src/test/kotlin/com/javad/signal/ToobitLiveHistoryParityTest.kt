@@ -35,6 +35,7 @@ class ToobitLiveHistoryParityTest {
         var bullishCount = 0
         var bearishCount = 0
         var processed = 0
+        var lastChartBarIndex = -1L
         candles.chunked(1_000).forEach { page ->
             page.forEach { candle ->
                 val previous = candles.getOrNull(processed - 1)
@@ -47,6 +48,7 @@ class ToobitLiveHistoryParityTest {
                 val expectedThreshold = if (processed == 0) null
                     else cumulativeAbsoluteDelta / processed.toDouble() * 2.0
                 val evaluation = processor.process(candle)
+                lastChartBarIndex = evaluation.chartBarIndex
                 assertEquals(processed.toLong(), evaluation.chartBarIndex, "BTC bar_index at $processed")
                 if (expectedThreshold == null) {
                     assertEquals(null, evaluation.autoThreshold, "BTC Auto threshold at bar 0")
@@ -77,7 +79,7 @@ class ToobitLiveHistoryParityTest {
         }
 
         assertEquals(candles.size, processed)
-        assertEquals(candles.size - 1L, processor.processHistory(emptyList()).size.toLong() + processed - 1L)
+        assertEquals(candles.size.toLong() - 1L, lastChartBarIndex)
         println(
             "TOOBIT_FULL_HISTORY_PARITY symbol=BTCUSDT.P timeframe=5m candles=$processed " +
                 "first=${candles.first().openTime} last=${candles.last().openTime} " +
