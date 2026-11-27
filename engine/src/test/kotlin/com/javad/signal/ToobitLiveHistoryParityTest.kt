@@ -46,8 +46,8 @@ class ToobitLiveHistoryParityTest {
             )
             assertEquals(allHistory, forwardHistory, "$symbol backward/forward history mismatch")
 
-            val singlePass = LuxAlgoFvgAutoProcessor(timeframe).processHistory(allHistory)
-            val pagedProcessor = LuxAlgoFvgAutoProcessor(timeframe)
+            val singlePass = LuxAlgoFvgAutoProcessor(timeframe, useHeikinAshi = true).processHistory(allHistory)
+            val pagedProcessor = LuxAlgoFvgAutoProcessor(timeframe, useHeikinAshi = true)
             val pagedPass = allHistory.chunked(1_000).flatMap { page ->
                 page.map(pagedProcessor::process)
             }
@@ -56,10 +56,11 @@ class ToobitLiveHistoryParityTest {
             assertEquals(0L, singlePass.first().chartBarIndex)
             assertEquals(allHistory.size.toLong() - 1L, singlePass.last().chartBarIndex)
 
+            val analysisHistory = toHeikinAshi(allHistory)
             var cumulativeAbsoluteDelta = 0.0
-            allHistory.forEachIndexed { index, candle ->
-                val previous = allHistory.getOrNull(index - 1)
-                val twoBarsAgo = allHistory.getOrNull(index - 2)
+            analysisHistory.forEachIndexed { index, candle ->
+                val previous = analysisHistory.getOrNull(index - 1)
+                val twoBarsAgo = analysisHistory.getOrNull(index - 2)
                 val delta = previous?.let {
                     (it.close - it.open) / it.open * 100.0
                 }
@@ -99,6 +100,31 @@ class ToobitLiveHistoryParityTest {
                     "first=${allHistory.first().openTime} last=${allHistory.last().openTime} " +
                     "bullish=$bullishCount bearish=$bearishCount pages=${allHistory.chunked(1_000).size}"
             )
+        }
+    }
+
+    /** Independent HA reference series for checking the production analysis path. */
+    private fun toHeikinAshi(source: List<MarketCandle>): List<MarketCandle> {
+        var previousOpen: Double? = null
+        var previousClose: Double? = null
+        return source.map { candle ->
+            val haClose = (candle.open + candle.high + candle.low + candle.close) / 4.0
+            val haOpen = if (previousOpen == null || previousClose == null) {
+                (candle.open + candle.close) / 2.0
+            } else {
+                (previousOpen + previousClose) / 2.0
+            }
+            val ha = MarketCandle(
+                openTime = candle.openTime,
+                open = haOpen,
+                high = maxOf(candle.high, haOpen, haClose),
+                low = minOf(candle.low, haOpen, haClose),
+                close = haClose,
+                volume = candle.volume
+            )
+            previousOpen = ha.open
+            previousClose = ha.close
+            ha
         }
     }
 }

@@ -155,3 +155,17 @@ The formulas and indexing behavior above are mapped to the cited public LuxAlgo 
 - Any historical candle revisions or feed-specific rounding.
 
 The user's first-candle and signal timestamps establish an index expectation, not OHLC identity. Automated tests now cover the Auto formula, bullish/bearish FVG conditions, paired FVG box boundaries and invalidation, 3,500-candle page-boundary equivalence, live BTC/ETH Toobit history, and per-candle signal behavior. No live trading actions are part of the test suite.
+
+
+## 11. Mandatory dataset-parity requirement (JAVAD acceptance gate)
+
+The required reference is the complete candle dataset visible in the Toobit chart for the exact same contract and selected chart timeframe: from that chart dataset's first candle through its latest candle. This is not a fixed count and must never be replaced by a 5,000-candle or other arbitrary window.
+
+The production loader must:
+1. Discover and load the complete available history for each contract/timeframe independently, using pagination without resetting the Heikin Ashi recursion, Pine `bar_index`, or `ta.cum` state at page boundaries.
+2. Sort candles chronologically and reject duplicate, missing, malformed, or out-of-order candles.
+3. Use the first candle of the verified chart dataset as `bar_index = 0`; initialize Heikin Ashi from that same first candle and start the Auto cumulative calculation there.
+4. Calculate both FVG and Auto Threshold from the same Heikin Ashi series, using the LuxAlgo Chart-mode formulas documented above.
+5. Keep the final closed candle and live forming candle behavior consistent with Pine realtime rollback/commit semantics.
+
+**Acceptance is not met merely because the REST endpoint returned every page it exposed.** The earliest and latest timestamps and candle values must be compared against the Toobit chart dataset for the same symbol/timeframe. If the REST endpoint cannot expose the chart's full dataset, JAVAD must report that boundary difference and must not claim exact chart/LuxAlgo parity. The current live REST test verifies pagination continuity and calculation consistency; it does not independently prove that REST history has the same first candle as the Toobit chart.
