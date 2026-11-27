@@ -8,6 +8,7 @@ package com.javad.signal
 data class TimeframeSignal(
     val symbol: String,
     val timeframe: AnalysisTimeframe,
+    /** Heikin Ashi candle used for this signal, never the raw Toobit OHLC candle. */
     val candle: MarketCandle,
     val signal: Signal,
     val fvgState: FvgStateUpdate
@@ -21,7 +22,7 @@ data class TimeframeSignal(
  * selected interval is the LuxAlgo chart timeframe; FVG uses Chart mode
  * (`fvg_tf = ""`), never an independent FVG interval.
  *
- * Every forming-candle update previews the raw FVG condition and displayed
+ * Every forming-candle update previews the Heikin Ashi FVG condition and displayed
  * FVG-array state using Pine rollback semantics. A qualifying LONG/SHORT may
  * be delivered intrabar, as in LuxAlgo; preview never commits ta.cum, bar_index,
  * or FVG arrays. The final closed snapshot commits source calculation state.
@@ -148,7 +149,7 @@ class SelectedTimeframeAnalysis(
         latestFvgStates[symbol.trim().uppercase()]
 
     /**
-     * Evaluates every live snapshot against the raw LuxAlgo condition and
+     * Evaluates every live snapshot against the LuxAlgo condition using Heikin Ashi candles and
      * commits only when the stream identifies the prior candle as closed
      * after the next candle begins. A detected gap invalidates the processor
      * until REST backfill is loaded.
@@ -212,7 +213,9 @@ class SelectedTimeframeAnalysis(
         return TimeframeSignal(
             symbol = normalized,
             timeframe = settings.selectedTimeframe,
-            candle = evaluation.analysisCandle ?: update.candle,
+            candle = requireNotNull(evaluation.analysisCandle) {
+                "Heikin Ashi candle missing from strategy evaluation for $normalized"
+            },
             signal = signal,
             fvgState = evaluation.fvgState ?: FvgStateUpdate(emptyList(), emptyList(), emptyList())
         )
