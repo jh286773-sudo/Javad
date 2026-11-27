@@ -98,14 +98,14 @@ class ToobitMarketDataClient(
     }
 
     /**
-     * Loads exactly 5,000 completed candles. Toobit's server clock is read once
-     * and is used for both the aligned history window and incomplete-candle
-     * filtering, so the two boundaries cannot drift between API calls.
+     * Loads every completed candle currently available from Toobit for this
+     * contract/timeframe. The first exchange candle is discovered first and
+     * becomes the dataset anchor (Pine bar_index 0).
      *
-     * endTimeMillis remains in the signature for source compatibility; the
-     * exchange server clock is authoritative for this rolling 5,000-bar window.
+     * Toobit's kline endpoint caps each response at 1,000 rows, so the complete
+     * range is fetched in chronological pages. No arbitrary 5,000-bar window
+     * is applied.
      */
-    @Suppress("UNUSED_PARAMETER")
     fun getAllHistoricalCandles(
         javadSymbol: String,
         timeframe: AnalysisTimeframe,
@@ -113,31 +113,58 @@ class ToobitMarketDataClient(
         pageLimit: Int = 1000
     ): List<MarketCandle> {
         require(endTimeMillis > 0L) { "endTimeMillis must be positive" }
+        require(pageLimit in 1..1000) { "Toobit kline page limit must be between 1 and 1000" }
         val serverTime = getServerTimeMillis()
         val historyEnd = TradingViewBasicHistoryWindow.endTimeMillis(
             timeframe = timeframe,
-            serverTimeMillis = serverTime
+            serverTimeMillis = minOf(serverTime, endTimeMillis)
         )
-        val historyStart = TradingViewBasicHistoryWindow.startTimeMillis(
-            timeframe = timeframe,
-            endTimeMillis = historyEnd
-        )
-        val candles = getHistoricalCandlesAtServerTime(
+        val firstAvailable = getEarliestAvailableCandleTime(
             javadSymbol = javadSymbol,
             timeframe = timeframe,
-            startTimeMillis = historyStart,
+            endTimeMillis = historyEnd,
+            pageLimit = pageLimit
+        )
+        return getHistoricalCandlesAtServerTime(
+            javadSymbol = javadSymbol,
+            timeframe = timeframe,
+            startTimeMillis = firstAvailable,
             endTimeMillis = historyEnd,
             pageLimit = pageLimit,
             serverTimeMillis = serverTime
         )
-        if (candles.size != TradingViewBasicHistoryWindow.HISTORICAL_BARS) {
+    }
+
+    /**
+     * Finds the first kline returned for a zero-based history query. Toobit's
+     * startTime parameter is inclusive; asking from epoch zero lets the
+     * exchange identify the oldest retained/listed candle for this contract.
+     */
+    private fun getEarliestAvailableCandleTime(
+        javadSymbol: String,
+        timeframe: AnalysisTimeframe,
+        endTimeMillis: Long,
+        pageLimit: Int
+    ): Long {
+        val contract = findContract(javadSymbol)
+        val requestPath = "/quote/v1/klines" +
+            "?symbol=${encode(contract.exchangeSymbol)}" +
+            "&interval=${encode(timeframe.apiInterval)}" +
+            "&startTime=0&endTime=$endTimeMillis&limit=$pageLimit"
+        val rows = getJson(requestPath)
+        if (!rows.isArray || rows.isEmpty) {
             throw ToobitApiException(
-                "Expected exactly ${TradingViewBasicHistoryWindow.HISTORICAL_BARS} completed candles " +
-                    "for $javadSymbol at ${timeframe.apiInterval}, but Toobit returned ${candles.size}; " +
-                    "refusing to calculate Auto Threshold on a shortened dataset"
+                "Toobit returned no historical candles for $javadSymbol at ${timeframe.apiInterval}"
             )
         }
-        return candles
+        val first = rows.map(::parseKline).minByOrNull { it.openTime }
+            ?: throw ToobitApiException("Toobit returned no parseable historical candles for $javadSymbol")
+        if (first.openTime <= 0L || first.openTime >= endTimeMillis ||
+            first.openTime % timeframe.durationMillis != 0L
+        ) {
+            throw ToobitApiException("Toobit returned an invalid earliest candle boundary for $javadSymbol")
+        }
+        return first.openTime
     }
 
     private fun getHistoricalCandlesAtServerTime(

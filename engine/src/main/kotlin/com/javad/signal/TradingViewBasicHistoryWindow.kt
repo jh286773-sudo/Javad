@@ -1,39 +1,18 @@
 package com.javad.signal
 
-import java.time.ZoneId
-import java.time.ZoneOffset
-
 /**
- * Defines Javad's fixed historical dataset size.
+ * Provides the completed-candle end boundary for Toobit history requests.
  *
- * Every symbol is initialized with exactly 5,000 completed candles at the
- * selected chart timeframe. The end boundary is rounded down to the current
- * candle's open time, so the window contains the 5,000 immediately preceding
- * completed candles. No week/month/year calendar expansion is applied.
- *
- * The earliest returned candle becomes Pine bar_index 0 and the starting point
- * for the cumulative LuxAlgo Auto Threshold calculation. Toobit timestamps
- * are Unix milliseconds and UTC candle boundaries are used.
+ * There is deliberately no fixed historical bar count. The history loader
+ * discovers the earliest candle available for each contract and timeframe;
+ * that candle becomes Pine bar_index 0 and the origin of ta.cum().
  */
 object TradingViewBasicHistoryWindow {
-    const val HISTORICAL_BARS: Int = 5_000
-
     fun endTimeMillis(
         timeframe: AnalysisTimeframe,
         serverTimeMillis: Long
     ): Long {
         require(serverTimeMillis > 0L) { "serverTimeMillis must be positive" }
         return serverTimeMillis - (serverTimeMillis % timeframe.durationMillis)
-    }
-
-    @Suppress("UNUSED_PARAMETER")
-    fun startTimeMillis(
-        timeframe: AnalysisTimeframe,
-        endTimeMillis: Long,
-        zoneId: ZoneId = ZoneOffset.UTC
-    ): Long {
-        require(endTimeMillis > 0L) { "endTimeMillis must be positive" }
-        val alignedEnd = endTimeMillis - (endTimeMillis % timeframe.durationMillis)
-        return alignedEnd - HISTORICAL_BARS.toLong() * timeframe.durationMillis
     }
 }

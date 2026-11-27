@@ -96,9 +96,8 @@ class SelectedTimeframeAnalysis(
         preserveSignalDirection: Boolean = false
     ) {
         val normalized = normalizeSelectedSymbol(symbol)
-        require(candles.size == TradingViewBasicHistoryWindow.HISTORICAL_BARS) {
-            "Exactly ${TradingViewBasicHistoryWindow.HISTORICAL_BARS} historical candles are required " +
-                "for $normalized; received ${candles.size}. Live analysis was not started."
+        require(candles.isNotEmpty()) {
+            "Toobit returned no historical candles for $normalized; live analysis was not started."
         }
         val interval = settings.selectedTimeframe.durationMillis
         candles.forEachIndexed { index, candle ->
