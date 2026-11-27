@@ -190,6 +190,8 @@ class SelectedTimeframeAnalysis(
         evaluation.fvgState?.let { latestFvgStates[normalized] = it }
         if (update.isClosed) {
             lastProcessedOpenTime[normalized] = update.candle.openTime
+            committedHistory[normalized] =
+                committedHistory[normalized].orEmpty() + update.candle
         }
 
         // LuxAlgo evaluates the current bar intrabar. A qualifying preview
