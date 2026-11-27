@@ -210,13 +210,4 @@ class ToobitMarketDataClientTest {
         assertEquals(false, analysis.isHistoryLoaded("BTCUSDT.P"))
     }
 
-    private fun testCandle(openTime: Long) = MarketCandle(
-        openTime = openTime,
-        open = 100.0,
-        high = 101.0,
-        low = 99.0,
-        close = 100.5,
-        volume = 10.0
-    )
-
 }
