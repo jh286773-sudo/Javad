@@ -112,10 +112,8 @@ class ToobitMarketDataClient(
     fun getAllHistoricalCandles(
         javadSymbol: String,
         timeframe: AnalysisTimeframe,
-        endTimeMillis: Long,
         pageLimit: Int = 1000
     ): List<MarketCandle> {
-        require(endTimeMillis > 0L) { "endTimeMillis must be positive" }
         require(pageLimit in 1..1000) { "Toobit kline page limit must be between 1 and 1000" }
 
         val serverTime = getServerTimeMillis()
