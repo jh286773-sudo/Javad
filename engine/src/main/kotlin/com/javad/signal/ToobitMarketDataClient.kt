@@ -193,6 +193,9 @@ class ToobitMarketDataClient(
 
         while (cursor < endTimeMillis) {
             val page = fetchPage(cursor).sortedBy { it.openTime }
+            if (page.size > pageLimit) {
+                throw ToobitApiException("Toobit returned more candles than the requested page limit")
+            }
             if (page.isEmpty()) {
                 throw ToobitApiException("Toobit returned an empty page before the requested history range was complete")
             }
