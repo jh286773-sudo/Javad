@@ -120,7 +120,7 @@ There is exactly one selected `AnalysisTimeframe` per JAVAD settings instance. T
 - Candle duration and timestamp alignment checks.
 - FVG Chart-mode OHLC offsets and `timeframe.change`.
 
-There is no separate FVG timeframe. Changing the selected chart timeframe clears each symbol's warmed-up processor, bar index, cumulative Auto Threshold, FVG arrays, and signal-direction memory. History must be loaded again before live analysis resumes.
+There is no separate FVG timeframe. Changing the selected chart timeframe clears each symbol's warmed-up processor, bar index, cumulative Auto Threshold, and FVG arrays. History must be loaded again before live analysis resumes.
 
 Supported chart intervals are 1m, 5m, 15m, 30m, 1h, and 2h. The initial default is 5m for the current BTCUSDT.P comparison.
 
@@ -140,11 +140,11 @@ The saved TradingView comparison anchor for this project is 2026-11-09 00:00 UTC
 ## 9. Live updates, closed-candle signal timing, and data gaps
 
 - Every forming-candle update is evaluated as a Pine realtime preview/rollback update. The current candle's high/low can make the raw FVG condition appear or disappear intrabar.
-- A qualifying preview can emit a LONG/SHORT notification intrabar. Preview does not commit cumulative Auto value, `bar_index`, or FVG arrays; the later closed snapshot commits them once. If the same candle already emitted, its close does not create a duplicate notification.
-- Each new qualifying candle can emit independently, including consecutive signals in the same direction. Only duplicate notifications for the same candle are suppressed.
+- A qualifying preview can emit a LONG/SHORT notification intrabar. Preview does not commit cumulative Auto value, `bar_index`, or FVG arrays; the later closed snapshot commits them once. A later evaluation of the same candle can emit again if the source conditions remain true.
+- Every evaluation that satisfies the LuxAlgo FVG + Auto conditions can emit independently. No additional same-candle, same-direction, or last-signal suppression is applied.
 - Toobit does not provide a separate close flag in this stream path: when the first update for the next candle arrives, JAVAD treats the preceding candle as closed and commits its calculation state.
 - Missing or out-of-order candles invalidate the affected symbol's processor; analysis must be warmed up again from REST history before continuing.
-- Every selected contract has independent history, bar index, cumulative delta, FVG zones, and per-candle notification memory.
+- Every selected contract has independent history, bar index, cumulative delta, and FVG zones; signal emission is determined by the current FVG + Auto conditions.
 
 ## 10. Known parity boundary — not yet proven
 
@@ -154,7 +154,7 @@ The formulas and indexing behavior above are mapped to the cited public LuxAlgo 
 - UTC alignment and any chart timezone differences.
 - Any historical candle revisions or feed-specific rounding.
 
-The user's first-candle and signal timestamps establish an index expectation, not OHLC identity. Automated tests now cover the Auto formula, bullish/bearish FVG conditions, paired FVG box boundaries and invalidation, 3,500-candle page-boundary equivalence, live BTC/ETH Toobit history, and per-candle signal behavior. No live trading actions are part of the test suite.
+The user's first-candle and signal timestamps establish an index expectation, not OHLC identity. Automated tests now cover the Auto formula, bullish/bearish FVG conditions, paired FVG box boundaries and invalidation, 3,500-candle page-boundary equivalence, live BTC/ETH Toobit history, and repeated live-evaluation signal behavior. No live trading actions are part of the test suite.
 
 ## 11. Mandatory dataset-parity requirement (JAVAD acceptance gate)
 
