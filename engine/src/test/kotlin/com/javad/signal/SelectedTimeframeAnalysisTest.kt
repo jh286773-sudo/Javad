@@ -58,7 +58,7 @@ class SelectedTimeframeAnalysisTest {
     }
 
     @Test
-    fun liveSignalsEmitIntrabarOnceSuppressSameDirectionAndAllowOppositeDirection() {
+    fun liveSignalsAllowRepeatedSameDirectionAndOppositeDirectionSignals() {
         val timeframe = AnalysisTimeframe.FIVE_MINUTES
         val interval = timeframe.durationMillis
         val start = 1_700_000_000_000L - (1_700_000_000_000L % interval)
@@ -109,8 +109,13 @@ class SelectedTimeframeAnalysisTest {
             bar(7, 104.5, 104.6, 104.8, 104.2),
             bar(8, 104.6, 102.508, 104.7, 102.4)
         )
-        nextBars.forEach { candle ->
-            assertEquals(null, analysis.onCandleUpdate(update(candle)))
+        nextBars.forEachIndexed { index, candle ->
+            val signal = analysis.onCandleUpdate(update(candle))
+            if (index == 2) {
+                assertEquals(FvgDirection.LONG, signal?.signal?.direction)
+            } else {
+                assertEquals(null, signal)
+            }
             assertEquals(null, analysis.onCandleUpdate(update(candle, closed = true)))
         }
 
