@@ -51,13 +51,11 @@ class ToobitSignalMonitor(
 
             // The loader reads Toobit's server clock and discovers the latest
             // closed candle separately for each selected contract.
-            val endTime = marketData.getServerTimeMillis()
             val latestCompletedBySymbol = mutableMapOf<String, MarketCandle>()
             contracts.forEach { contract ->
                 val history = marketData.getAllHistoricalCandles(
                     javadSymbol = contract.javadSymbol,
-                    timeframe = settings.selectedTimeframe,
-                    endTimeMillis = endTime
+                    timeframe = settings.selectedTimeframe
                 )
                 require(history.isNotEmpty()) {
                     "Toobit returned no completed history for " + contract.javadSymbol
@@ -96,11 +94,9 @@ class ToobitSignalMonitor(
         try {
             if (update.gapDetected) {
                 if (update.isClosed) return
-                val endTime = marketData.getServerTimeMillis()
                 val history = marketData.getAllHistoricalCandles(
                     javadSymbol = update.javadSymbol,
-                    timeframe = update.timeframe,
-                    endTimeMillis = endTime
+                    timeframe = update.timeframe
                 )
                 require(history.isNotEmpty()) {
                     "Toobit returned no recovery history for " + update.javadSymbol
@@ -152,11 +148,9 @@ class ToobitSignalMonitor(
         val timeframe = activeTimeframe ?: return
         activeContracts.forEach { contract ->
             try {
-                val endTime = marketData.getServerTimeMillis()
                 val history = marketData.getAllHistoricalCandles(
                     javadSymbol = contract.javadSymbol,
-                    timeframe = timeframe,
-                    endTimeMillis = endTime
+                    timeframe = timeframe
                 )
                 require(history.isNotEmpty()) {
                     "Toobit returned no reconciliation history for " + contract.javadSymbol
