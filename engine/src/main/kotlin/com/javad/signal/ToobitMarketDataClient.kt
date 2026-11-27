@@ -93,29 +93,24 @@ class ToobitMarketDataClient(
         val sourceInterval = timeframe.apiInterval
         val sourceDuration = timeframe.durationMillis
         val serverTime = getServerTimeMillis()
-        val sourceCandles = mutableListOf<MarketCandle>()
-        var cursor = startTimeMillis
-
-        while (cursor < endTimeMillis) {
-            val path = "/quote/v1/klines" +
+        val sourceCandles = collectPages(
+            startTimeMillis = startTimeMillis,
+            endTimeMillis = endTimeMillis,
+            sourceDuration = sourceDuration,
+            pageLimit = pageLimit
+        ) { cursor ->
+            val requestPath = "/quote/v1/klines" +
                 "?symbol=${encode(contract.exchangeSymbol)}" +
                 "&interval=${encode(sourceInterval)}" +
                 "&startTime=$cursor&endTime=$endTimeMillis&limit=$pageLimit"
-            val rows = getJson(path)
-            if (!rows.isArray || rows.size() == 0) break
-
-            val page = rows.map(::parseKline).sortedBy { it.openTime }
-            val fresh = page.filter { it.openTime >= cursor && it.openTime < endTimeMillis }
-            if (fresh.isEmpty()) break
-            sourceCandles += fresh
-            val next = fresh.last().openTime + sourceDuration
-            if (next <= cursor) throw ToobitApiException("Toobit kline pagination did not advance")
-            cursor = next
-            if (page.size < pageLimit) break
+            val rows = getJson(requestPath)
+            if (!rows.isArray) {
+                throw ToobitApiException("Toobit returned a non-array kline page")
+            }
+            rows.map(::parseKline)
         }
 
         val completed = sourceCandles
-            .distinctBy { it.openTime }
             .filter { it.openTime + sourceDuration <= minOf(serverTime, endTimeMillis) }
             .sortedBy { it.openTime }
 
@@ -173,6 +168,56 @@ class ToobitMarketDataClient(
             )
         }
         return candles
+    }
+
+    /**
+     * Fetches every page until the requested time range is exhausted.
+     * A short page is not an end-of-history signal: exchanges may return fewer
+     * rows than the requested limit while more history is still available.
+     * Every requested interval must appear exactly once and in sequence.
+     */
+    internal fun collectPages(
+        startTimeMillis: Long,
+        endTimeMillis: Long,
+        sourceDuration: Long,
+        pageLimit: Int,
+        fetchPage: (Long) -> List<MarketCandle>
+    ): List<MarketCandle> {
+        require(startTimeMillis < endTimeMillis)
+        require(sourceDuration > 0L)
+        require(pageLimit in 1..1000)
+
+        val collected = mutableListOf<MarketCandle>()
+        val seenOpenTimes = mutableSetOf<Long>()
+        var cursor = startTimeMillis
+
+        while (cursor < endTimeMillis) {
+            val page = fetchPage(cursor).sortedBy { it.openTime }
+            if (page.isEmpty()) {
+                throw ToobitApiException("Toobit returned an empty page before the requested history range was complete")
+            }
+
+            val fresh = page.filter { it.openTime >= cursor && it.openTime < endTimeMillis }
+            if (fresh.isEmpty()) {
+                throw ToobitApiException("Toobit pagination made no progress at $cursor")
+            }
+            if (fresh.first().openTime != cursor) {
+                throw ToobitApiException("Missing Toobit candle at $cursor; refusing incomplete history")
+            }
+
+            fresh.forEach { candle ->
+                if (!seenOpenTimes.add(candle.openTime)) {
+                    throw ToobitApiException("Duplicate Toobit candle at ${candle.openTime}")
+                }
+                if (candle.openTime != cursor) {
+                    throw ToobitApiException("Missing or out-of-order Toobit candle at $cursor")
+                }
+                collected += candle
+                cursor += sourceDuration
+            }
+        }
+
+        return collected
     }
 
     /** Returns Toobit's server clock for history-window boundaries. */
