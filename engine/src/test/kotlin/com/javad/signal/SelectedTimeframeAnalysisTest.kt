@@ -101,11 +101,17 @@ class SelectedTimeframeAnalysisTest {
             FvgDirection.LONG,
             analysis.onCandleUpdate(update(firstLong))?.signal?.direction
         )
-        // A REST backfill after reconnect must not repeat an alert already
-        // emitted for this still-forming candle.
-        analysis.loadHistory("BTCUSDT.P", history, preserveLastSignalCandle = true)
-        assertEquals(null, analysis.onCandleUpdate(update(firstLong)))
-        assertEquals(null, analysis.onCandleUpdate(update(firstLong, closed = true)))
+        // LuxAlgo has no extra same-candle or same-direction suppression.
+        // Every qualifying evaluation can emit, including repeated previews
+        // and the final closed-candle evaluation.
+        assertEquals(
+            FvgDirection.LONG,
+            analysis.onCandleUpdate(update(firstLong))?.signal?.direction
+        )
+        assertEquals(
+            FvgDirection.LONG,
+            analysis.onCandleUpdate(update(firstLong, closed = true))?.signal?.direction
+        )
 
         val nextBars = listOf(
             bar(4, 102.3, 102.4, 102.6, 102.0),
@@ -121,7 +127,12 @@ class SelectedTimeframeAnalysisTest {
             } else {
                 assertEquals(null, signal)
             }
-            assertEquals(null, analysis.onCandleUpdate(update(candle, closed = true)))
+            val closedSignal = analysis.onCandleUpdate(update(candle, closed = true))
+            if (index == 2) {
+                assertEquals(FvgDirection.LONG, closedSignal?.signal?.direction)
+            } else {
+                assertEquals(null, closedSignal)
+            }
         }
 
         val oppositeShort = bar(9, 102.508, 102.4, 104.0, 102.0)
