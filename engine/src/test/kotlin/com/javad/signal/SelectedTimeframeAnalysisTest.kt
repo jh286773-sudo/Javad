@@ -9,7 +9,7 @@ import kotlin.test.assertTrue
 
 class SelectedTimeframeAnalysisTest {
     @Test
-    fun selectedTimeframeIsAppliedToEveryIntervalAndLiveCandleUpdatesAreEvaluatedIntrabar() {
+    fun selectedTimeframeIsAppliedToEveryIntervalAndSignalsWaitForCandleClose() {
         AnalysisTimeframe.entries.forEach { timeframe ->
             val symbol = "BTCUSDT.P"
             val settings = AnalysisSettings(
@@ -31,26 +31,27 @@ class SelectedTimeframeAnalysisTest {
                 openTime = start + 3L * timeframe.durationMillis
             )
 
-            val intrabarResult = analysis.onCandleUpdate(
-                ToobitCandleUpdate(symbol, liveCandle, isClosed = false, timeframe = timeframe)
-            )
-            assertEquals(timeframe, intrabarResult?.timeframe)
-            assertEquals(FvgDirection.LONG, intrabarResult?.signal?.direction)
-            assertEquals(liveCandle.openTime, intrabarResult?.candle?.openTime)
+            // The raw FVG + Auto condition may qualify intrabar, but previews
+            // must never deliver a signal before the source candle is closed.
             assertNull(
                 analysis.onCandleUpdate(
                     ToobitCandleUpdate(symbol, liveCandle, isClosed = false, timeframe = timeframe)
-                ),
-                "A second qualifying update in the same candle must not duplicate the alert"
-            )
-
-            // Closing the same candle commits its cumulative contribution but
-            // must not send a second once-per-bar notification.
-            assertNull(
-                analysis.onCandleUpdate(
-                    ToobitCandleUpdate(symbol, liveCandle, isClosed = true, timeframe = timeframe)
                 )
             )
+            assertNull(
+                analysis.onCandleUpdate(
+                    ToobitCandleUpdate(symbol, liveCandle, isClosed = false, timeframe = timeframe)
+                )
+            )
+
+            // The closed snapshot commits once and is the first point at which
+            // the qualifying LONG may be delivered.
+            val closedResult = analysis.onCandleUpdate(
+                ToobitCandleUpdate(symbol, liveCandle, isClosed = true, timeframe = timeframe)
+            )
+            assertEquals(timeframe, closedResult?.timeframe)
+            assertEquals(FvgDirection.LONG, closedResult?.signal?.direction)
+            assertEquals(liveCandle.openTime, closedResult?.candle?.openTime)
         }
     }
 
