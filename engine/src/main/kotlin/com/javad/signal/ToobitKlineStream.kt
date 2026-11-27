@@ -51,7 +51,8 @@ class ToobitKlineStream(
 
     fun connect(
         contracts: List<ToobitPerpetualContract>,
-        timeframe: AnalysisTimeframe
+        timeframe: AnalysisTimeframe,
+        latestCompletedCandles: Map<String, MarketCandle> = emptyMap()
     ): CompletableFuture<Void> {
         require(contracts.isNotEmpty()) { "At least one Toobit contract is required" }
         synchronized(lock) {
@@ -63,8 +64,18 @@ class ToobitKlineStream(
             reconnectTask?.cancel(false)
             reconnectTask = null
             exchangeToJavad.clear()
-            contracts.forEach { exchangeToJavad[it.exchangeSymbol] = it.javadSymbol }
+            contracts.forEach { contract ->
+                exchangeToJavad[contract.exchangeSymbol] = contract.javadSymbol
+            }
+            // Seed the stream cursor with the final REST-committed candle.
+            // The first live update can then be checked for a gap instead of
+            // being accepted blindly as the first observed candle.
             previousBySymbol.clear()
+            contracts.forEach { contract ->
+                latestCompletedCandles[contract.javadSymbol]?.let {
+                    previousBySymbol[contract.javadSymbol] = it
+                }
+            }
         }
         pingTask?.cancel(false)
         val connection = openSocket(contracts, timeframe)
