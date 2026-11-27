@@ -4,9 +4,9 @@ import java.time.Instant
 
 /**
  * Reproduces the user's observed UTC daily-rolling TradingView history window.
- * The observed left edge is anchored independently for each native Toobit
- * timeframe at the 2026-11-27 00:00 UTC reference snapshot. At each subsequent
- * UTC midnight, the left edge advances by exactly 24 hours.
+ * The observed left edge is anchored independently for each supported native
+ * Toobit timeframe at the 2026-11-27 00:00 UTC reference snapshot. At each
+ * subsequent UTC midnight, the left edge advances by exactly 24 hours.
  *
  * This is an explicit JAVAD compatibility rule based on live chart observations;
  * it is not inferred from TradingView's Pine bar-limit API.
@@ -23,7 +23,6 @@ object TradingViewBasicHistoryWindow {
             AnalysisTimeframe.THIRTY_MINUTES,
             AnalysisTimeframe.ONE_HOUR,
             AnalysisTimeframe.TWO_HOURS -> "2025-01-01T00:00:00Z"
-            AnalysisTimeframe.FOUR_HOURS -> "2024-01-01T00:00:00Z"
         }
         return Instant.parse(firstCandle).toEpochMilli()
     }
