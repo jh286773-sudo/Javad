@@ -228,6 +228,78 @@ class LuxAlgoFvgAutoEngineTest {
         }
     }
 
+    @Test
+    fun bullishFvgBoxesMatchLuxAlgoBoundariesAndStrictLowInvalidation() {
+        val timeframe = AnalysisTimeframe.FIVE_MINUTES
+        val interval = timeframe.durationMillis
+        val start = 1_700_000_000_000L - (1_700_000_000_000L % interval)
+        val processor = LuxAlgoFvgAutoProcessor(timeframe)
+
+        processor.process(candle(100.0, 100.1, 100.2, 99.9, start))
+        processor.process(candle(100.1, 100.2, 100.3, 100.0, start + interval))
+        processor.process(candle(100.2, 102.204, 102.3, 100.1, start + 2L * interval))
+        val formedEvaluation = processor.process(
+            candle(102.204, 102.3, 102.5, 100.5, start + 3L * interval)
+        )
+        val zone = formedEvaluation.fvgState!!.formedZones.single()
+
+        assertTrue(formedEvaluation.bullishFvg)
+        assertEquals(FvgDirection.LONG, zone.direction)
+        assertEquals(3L, zone.chartBarIndex)
+        assertEquals(2L, zone.leftBarIndex)
+        assertEquals(4L, zone.rightBarIndex)
+        assertEquals(FvgBox(top = 100.5, bottom = 100.4), zone.maxBox)
+        assertEquals(FvgBox(top = 100.4, bottom = 100.3), zone.minBox)
+
+        val exactTouch = processor.process(
+            candle(102.3, 102.3, 102.6, 100.3, start + 4L * interval)
+        )
+        assertTrue(exactTouch.fvgState!!.removedZones.isEmpty())
+        assertEquals(listOf(zone), exactTouch.fvgState.activeZones)
+
+        val strictBreak = processor.process(
+            candle(102.3, 102.2, 102.5, 100.29, start + 5L * interval)
+        )
+        assertEquals(listOf(zone), strictBreak.fvgState!!.removedZones)
+        assertTrue(strictBreak.fvgState.activeZones.isEmpty())
+    }
+
+    @Test
+    fun bearishFvgBoxesMatchLuxAlgoBoundariesAndStrictHighInvalidation() {
+        val timeframe = AnalysisTimeframe.FIVE_MINUTES
+        val interval = timeframe.durationMillis
+        val start = 1_700_000_000_000L - (1_700_000_000_000L % interval)
+        val processor = LuxAlgoFvgAutoProcessor(timeframe)
+
+        processor.process(candle(100.0, 99.9, 100.1, 99.8, start))
+        processor.process(candle(99.9, 99.8, 100.0, 99.7, start + interval))
+        processor.process(candle(99.8, 97.804, 99.9, 97.7, start + 2L * interval))
+        val formedEvaluation = processor.process(
+            candle(97.804, 97.7, 99.5, 97.5, start + 3L * interval)
+        )
+        val zone = formedEvaluation.fvgState!!.formedZones.single()
+
+        assertTrue(formedEvaluation.bearishFvg)
+        assertEquals(FvgDirection.SHORT, zone.direction)
+        assertEquals(3L, zone.chartBarIndex)
+        assertEquals(2L, zone.leftBarIndex)
+        assertEquals(4L, zone.rightBarIndex)
+        assertEquals(FvgBox(top = 99.5, bottom = 99.6), zone.maxBox)
+        assertEquals(FvgBox(top = 99.6, bottom = 99.7), zone.minBox)
+
+        val exactTouch = processor.process(
+            candle(97.7, 97.7, 99.5, 97.4, start + 4L * interval)
+        )
+        assertTrue(exactTouch.fvgState!!.removedZones.isEmpty())
+        assertEquals(listOf(zone), exactTouch.fvgState.activeZones)
+
+        val strictBreak = processor.process(
+            candle(97.7, 97.8, 99.51, 97.4, start + 5L * interval)
+        )
+        assertEquals(listOf(zone), strictBreak.fvgState!!.removedZones)
+        assertTrue(strictBreak.fvgState.activeZones.isEmpty())
+    }
+
     private fun candle(open: Double, close: Double, high: Double, low: Double, openTime: Long) = MarketCandle(
         openTime = openTime,
         open = open,
