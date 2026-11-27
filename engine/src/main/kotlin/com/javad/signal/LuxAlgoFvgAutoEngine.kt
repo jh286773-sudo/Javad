@@ -35,6 +35,8 @@ data class FvgEvaluation(
     val autoThreshold: Double?,
     val bullishFvg: Boolean,
     val bearishFvg: Boolean,
+    /** Heikin Ashi candle used by the strategy for this evaluation. */
+    val analysisCandle: MarketCandle? = null,
     /** Current LuxAlgo FVG-box state after this bar/tick is evaluated. */
     val fvgState: FvgStateUpdate? = null
 )
@@ -181,13 +183,15 @@ class LuxAlgoFvgAutoProcessor(
     private val fvgExtend: Int = 1,
     firstChartBarIndex: Long = 0L,
     initialCumulativeAbsoluteDelta: Double = 0.0,
-    private val useHeikinAshi: Boolean = false
+    private val useHeikinAshi: Boolean = true
 ) {
     private val calculator = LuxAlgoFvgAutoCalculator(
         autoThresholdEnabled = autoThresholdEnabled,
         firstChartBarIndex = firstChartBarIndex,
         initialCumulativeAbsoluteDelta = initialCumulativeAbsoluteDelta
     )
+    // Keep the complete committed Heikin Ashi series from dataset index 0.
+    // This preserves the full recursive chain, not just the two FVG lookback bars.
     private val recentCandles = mutableListOf<MarketCandle>()
     private val bullishZones = mutableListOf<FvgZone>()
     private val bearishZones = mutableListOf<FvgZone>()
@@ -204,6 +208,9 @@ class LuxAlgoFvgAutoProcessor(
     /** Commit one completed chart bar exactly once. */
     fun process(candle: MarketCandle): FvgEvaluation =
         evaluateCandle(candle, commit = true)
+
+    /** Returns every committed Heikin Ashi candle, oldest first, beginning at dataset index 0. */
+    fun committedHeikinAshiHistory(): List<MarketCandle> = recentCandles.toList()
 
     /** Returns the last committed FVG arrays, in newest-first source order. */
     fun activeFvgZones(): List<FvgZone> = bullishZones.toList() + bearishZones.toList()
@@ -276,10 +283,9 @@ class LuxAlgoFvgAutoProcessor(
             bearishZones.clear()
             bearishZones.addAll(nextBearish)
             recentCandles += analysisCandle
-            if (recentCandles.size > 2) recentCandles.removeAt(0)
         }
 
-        return base.copy(fvgState = state)
+        return base.copy(analysisCandle = analysisCandle, fvgState = state)
     }
 
     /**
