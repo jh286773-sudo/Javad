@@ -156,7 +156,6 @@ The formulas and indexing behavior above are mapped to the cited public LuxAlgo 
 
 The user's first-candle and signal timestamps establish an index expectation, not OHLC identity. Automated tests now cover the Auto formula, bullish/bearish FVG conditions, paired FVG box boundaries and invalidation, 3,500-candle page-boundary equivalence, live BTC/ETH Toobit history, and per-candle signal behavior. No live trading actions are part of the test suite.
 
-
 ## 11. Mandatory dataset-parity requirement (JAVAD acceptance gate)
 
 The required reference is the complete candle dataset visible in the Toobit chart for the exact same contract and selected chart timeframe: from that chart dataset's first candle through its latest candle. This is not a fixed count and must never be replaced by a 5,000-candle or other arbitrary window.
@@ -169,3 +168,18 @@ The production loader must:
 5. Keep the final closed candle and live forming candle behavior consistent with Pine realtime rollback/commit semantics.
 
 **Acceptance is not met merely because the REST endpoint returned every page it exposed.** The earliest and latest timestamps and candle values must be compared against the Toobit chart dataset for the same symbol/timeframe. If the REST endpoint cannot expose the chart's full dataset, JAVAD must report that boundary difference and must not claim exact chart/LuxAlgo parity. The current live REST test verifies pagination continuity and calculation consistency; it does not independently prove that REST history has the same first candle as the Toobit chart.
+
+## 12. Automatic first/last candle boundary refresh (required behavior)
+
+This rule applies independently to every selected Toobit perpetual contract and the one selected chart timeframe. It is not tied to the time JAVAD was installed, started, or last kept online.
+
+- **When analysis starts or restarts:** fetch and paginate the symbol/timeframe's available history again. Rediscover its earliest available candle and latest completed candle; do not assume a previously saved start timestamp is still the earliest.
+- **While analysis is running:** use the live kline stream to advance the latest boundary. Commit each newly closed candle once; keep the currently forming candle as a preview. Periodically reconcile the latest REST candles with the stream so missed updates are recovered.
+- **If JAVAD was offline:** on the next start/reconnect, backfill every missing candle between the last locally known point and the latest completed candle before resuming live analysis. Never skip the offline interval.
+- **If Toobit exposes older history than before:** the newly discovered earlier candle becomes the dataset start. Rebuild that symbol's Heikin Ashi series, `bar_index`, cumulative Auto Threshold, FVG state, and signal warm-up from the new first candle in chronological order. Do not prepend candles while retaining the old recursive/cumulative state.
+- **If the earliest available candle has not changed:** retain the same dataset origin; only append/reconcile newer candles. A normal new day does not by itself move the first-candle boundary.
+- **If the selected symbol or timeframe changes:** independently discover and load the complete history for that new selection before enabling its live analysis.
+
+The moving latest boundary and the discovered earliest boundary must always be recorded with their candle timestamps per symbol/timeframe. A refresh is successful only after timestamp continuity and duplicate/order validation. The first boundary is stable unless the exchange makes older data available; the last boundary advances as new candles close.
+
+**Implementation/verification status:** the current engine loads full REST history at startup and reloads after detected stream gaps. The automatic rediscovery of an earlier first boundary, periodic REST reconciliation of the latest boundary, and offline backfill must be verified in runtime tests before this entire lifecycle can be marked complete. The chart-vs-REST first/last timestamp and OHLC comparison remains a separate acceptance gate.
