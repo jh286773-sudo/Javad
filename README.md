@@ -18,6 +18,12 @@ JAVAD is an Android-focused signal application for Toobit USDT-margined perpetua
 - Signal delivery is limited to one notification per candle, but qualifying signals on later candles may repeat in the same direction. Only duplicate notifications for the same candle are suppressed. Each symbol keeps an independent FVG/Auto state.
 - Keep development on the single `main` branch.
 
+
+
+### Automatic history-boundary refresh
+
+For each selected contract and chart timeframe independently, JAVAD must rediscover the earliest available candle and the latest completed candle whenever analysis starts or restarts. While running, the live stream advances the latest boundary; periodic REST reconciliation recovers missed updates. After any offline period, all missing candles must be backfilled before live analysis resumes. If Toobit makes older candles available, the engine must rebuild that symbol's Heikin Ashi, Pine-style bar index, cumulative Auto Threshold, and FVG state from the newly discovered first candle; it must not retain stale recursive/cumulative state. The first boundary stays unchanged unless older history becomes available, while the latest boundary advances as candles close. Exact equality between these API boundaries and the Toobit chart's first/last candles still requires timestamp and OHLC comparison. See section 12 of [FVG_TIMEFRAME_AUDIT.md](FVG_TIMEFRAME_AUDIT.md).
+
 ## FVG + Auto Threshold audit
 
 The calculation and timeframe mapping are documented in [`FVG_TIMEFRAME_AUDIT.md`](FVG_TIMEFRAME_AUDIT.md). The engine first converts Toobit OHLC to Heikin Ashi (first HA open = (open + close) / 2; subsequent HA open = (previous HA open + previous HA close) / 2; HA close = (open + high + low + close) / 4; HA wicks include the HA open/close). It then ports the LuxAlgo Chart-mode formulas using those HA candles: previous-candle percentage delta, cumulative absolute-delta Auto Threshold divided by the Pine chart `bar_index` and multiplied by 2, and the original bullish/bearish three-candle gap conditions. The first candle in each loaded chart dataset is index 0; the first Auto Threshold is undefined at index 0, as in Pine. Each symbol maintains its own cumulative state.
