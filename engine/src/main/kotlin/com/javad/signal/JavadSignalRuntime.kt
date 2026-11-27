@@ -24,7 +24,7 @@ class JavadSignalRuntime(
     )
 
     /**
-     * Loads each selected contract's available Toobit candle history, initializes
+     * Loads each selected contract's exact configured rolling Toobit history window, initializes
      * its independent LuxAlgo-style FVG + Auto state, then starts live updates.
      * Invoke off the Android main thread because history retrieval is blocking.
      */
