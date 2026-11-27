@@ -90,6 +90,70 @@ class ToobitMarketDataClientTest {
     }
 
     @Test
+    fun backwardPaginationConnectsMoreThanFiveThousandCandlesAcrossPages() {
+        val client = ToobitMarketDataClient()
+        val duration = 60_000L
+        val candles = (1L..6_001L).map { index -> testCandle(index * duration) }
+        val calls = mutableListOf<Long>()
+
+        val collected = client.collectPagesBackward(
+            endTimeExclusiveMillis = 6_002L * duration,
+            sourceDuration = duration,
+            pageLimit = 1_000
+        ) { cursor ->
+            calls += cursor
+            candles.filter { it.openTime < cursor }.takeLast(1_000)
+        }
+
+        assertEquals(6_001, collected.size)
+        assertEquals(7, calls.size) // Six data pages plus the final empty page.
+        assertEquals(candles.first().openTime, collected.first().openTime)
+        assertEquals(candles.last().openTime, collected.last().openTime)
+        assertEquals(candles, collected)
+    }
+
+    @Test
+    fun backwardPaginationContinuesAfterShortPagesUntilNoOlderCandlesRemain() {
+        val client = ToobitMarketDataClient()
+        val duration = 60_000L
+        val candles = (1L..5L).map { index -> testCandle(index * duration) }
+        var calls = 0
+
+        val collected = client.collectPagesBackward(
+            endTimeExclusiveMillis = 6L * duration,
+            sourceDuration = duration,
+            pageLimit = 3
+        ) { cursor ->
+            calls++
+            candles.filter { it.openTime < cursor }.takeLast(if (calls == 1) 2 else 3)
+        }
+
+        assertEquals(4, calls) // 2 + 2 + 1 candles, then an empty page.
+        assertEquals(candles, collected)
+    }
+
+    @Test
+    fun backwardPaginationRejectsMissingCandlesAtPageBoundaries() {
+        val client = ToobitMarketDataClient()
+        val duration = 60_000L
+        val candles = (1L..10L).map { index -> testCandle(index * duration) }
+
+        assertFailsWith<ToobitApiException> {
+            client.collectPagesBackward(
+                endTimeExclusiveMillis = 11L * duration,
+                sourceDuration = duration,
+                pageLimit = 5
+            ) { cursor ->
+                if (cursor == 11L * duration) {
+                    candles.filter { it.openTime < cursor }.takeLast(5)
+                } else {
+                    candles.filter { it.openTime < cursor - duration }.takeLast(5)
+                }
+            }
+        }
+    }
+
+    @Test
     fun shortPageDoesNotStopPaginationEarly() {
         val client = ToobitMarketDataClient()
         val duration = 60_000L
