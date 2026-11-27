@@ -86,13 +86,74 @@ class ToobitMarketDataClient(
         endTimeMillis: Long,
         pageLimit: Int = 1000
     ): List<MarketCandle> {
+        val serverTime = getServerTimeMillis()
+        return getHistoricalCandlesAtServerTime(
+            javadSymbol = javadSymbol,
+            timeframe = timeframe,
+            startTimeMillis = startTimeMillis,
+            endTimeMillis = endTimeMillis,
+            pageLimit = pageLimit,
+            serverTimeMillis = serverTime
+        )
+    }
+
+    /**
+     * Loads exactly 5,000 completed candles. Toobit's server clock is read once
+     * and is used for both the aligned history window and incomplete-candle
+     * filtering, so the two boundaries cannot drift between API calls.
+     *
+     * endTimeMillis remains in the signature for source compatibility; the
+     * exchange server clock is authoritative for this rolling 5,000-bar window.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    fun getAllHistoricalCandles(
+        javadSymbol: String,
+        timeframe: AnalysisTimeframe,
+        endTimeMillis: Long,
+        pageLimit: Int = 1000
+    ): List<MarketCandle> {
+        require(endTimeMillis > 0L) { "endTimeMillis must be positive" }
+        val serverTime = getServerTimeMillis()
+        val historyEnd = TradingViewBasicHistoryWindow.endTimeMillis(
+            timeframe = timeframe,
+            serverTimeMillis = serverTime
+        )
+        val historyStart = TradingViewBasicHistoryWindow.startTimeMillis(
+            timeframe = timeframe,
+            endTimeMillis = historyEnd
+        )
+        val candles = getHistoricalCandlesAtServerTime(
+            javadSymbol = javadSymbol,
+            timeframe = timeframe,
+            startTimeMillis = historyStart,
+            endTimeMillis = historyEnd,
+            pageLimit = pageLimit,
+            serverTimeMillis = serverTime
+        )
+        if (candles.size != TradingViewBasicHistoryWindow.HISTORICAL_BARS) {
+            throw ToobitApiException(
+                "Expected exactly ${TradingViewBasicHistoryWindow.HISTORICAL_BARS} completed candles " +
+                    "for $javadSymbol at ${timeframe.apiInterval}, but Toobit returned ${candles.size}; " +
+                    "refusing to calculate Auto Threshold on a shortened dataset"
+            )
+        }
+        return candles
+    }
+
+    private fun getHistoricalCandlesAtServerTime(
+        javadSymbol: String,
+        timeframe: AnalysisTimeframe,
+        startTimeMillis: Long,
+        endTimeMillis: Long,
+        pageLimit: Int,
+        serverTimeMillis: Long
+    ): List<MarketCandle> {
         require(startTimeMillis < endTimeMillis) { "startTimeMillis must be before endTimeMillis" }
         require(pageLimit in 1..1000) { "Toobit kline page limit must be between 1 and 1000" }
 
         val contract = findContract(javadSymbol)
         val sourceInterval = timeframe.apiInterval
         val sourceDuration = timeframe.durationMillis
-        val serverTime = getServerTimeMillis()
         val sourceCandles = collectPages(
             startTimeMillis = startTimeMillis,
             endTimeMillis = endTimeMillis,
@@ -111,7 +172,7 @@ class ToobitMarketDataClient(
         }
 
         val completed = sourceCandles
-            .filter { it.openTime + sourceDuration <= minOf(serverTime, endTimeMillis) }
+            .filter { it.openTime + sourceDuration <= minOf(serverTimeMillis, endTimeMillis) }
             .sortedBy { it.openTime }
 
         if (completed.isNotEmpty() && completed.first().openTime != startTimeMillis) {
@@ -130,44 +191,6 @@ class ToobitMarketDataClient(
         }
 
         return completed
-    }
-
-    /**
-     * Loads exactly 5,000 completed candles for the selected chart timeframe.
-     * The end boundary is rounded down to the current candle open, then the
-     * preceding 5,000 intervals are fetched in pages of at most 1,000.
-     * Fewer or more candles are rejected: Auto Threshold must start at the
-     * earliest candle of this fixed dataset (bar_index 0).
-     */
-    fun getAllHistoricalCandles(
-        javadSymbol: String,
-        timeframe: AnalysisTimeframe,
-        endTimeMillis: Long,
-        pageLimit: Int = 1000
-    ): List<MarketCandle> {
-        val historyEnd = TradingViewBasicHistoryWindow.endTimeMillis(
-            timeframe = timeframe,
-            serverTimeMillis = endTimeMillis
-        )
-        val historyStart = TradingViewBasicHistoryWindow.startTimeMillis(
-            timeframe = timeframe,
-            endTimeMillis = historyEnd
-        )
-        val candles = getHistoricalCandles(
-            javadSymbol = javadSymbol,
-            timeframe = timeframe,
-            startTimeMillis = historyStart,
-            endTimeMillis = historyEnd,
-            pageLimit = pageLimit
-        )
-        if (candles.size != TradingViewBasicHistoryWindow.HISTORICAL_BARS) {
-            throw ToobitApiException(
-                "Expected exactly ${TradingViewBasicHistoryWindow.HISTORICAL_BARS} completed candles " +
-                    "for $javadSymbol at ${timeframe.apiInterval}, but Toobit returned ${candles.size}; " +
-                    "refusing to calculate Auto Threshold on a shortened dataset"
-            )
-        }
-        return candles
     }
 
     /**
