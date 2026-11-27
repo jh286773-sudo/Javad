@@ -50,6 +50,7 @@ class ToobitSignalMonitor(
 
             // Use exchange time so device-clock drift cannot truncate the history window.
             val endTime = marketData.getServerTimeMillis()
+            val latestCompletedBySymbol = mutableMapOf<String, MarketCandle>()
             contracts.forEach { contract ->
                 val history = marketData.getAllHistoricalCandles(
                     javadSymbol = contract.javadSymbol,
@@ -59,14 +60,22 @@ class ToobitSignalMonitor(
                 require(history.isNotEmpty()) {
                     "Toobit returned no completed history for ${contract.javadSymbol}"
                 }
+                // Every start rebuilds the full available history from its
+                // earliest candle. The final candle seeds the live stream
+                // cursor so startup omissions are detected immediately.
                 analysis.loadHistory(contract.javadSymbol, history)
+                latestCompletedBySymbol[contract.javadSymbol] = history.last()
             }
 
             activeContracts = contracts.toList()
             activeTimeframe = settings.selectedTimeframe
             val newStream = ToobitKlineStream(onUpdate = ::handleUpdate)
             stream = newStream
-            val connection = newStream.connect(contracts, settings.selectedTimeframe)
+            val connection = newStream.connect(
+                contracts = contracts,
+                timeframe = settings.selectedTimeframe,
+                latestCompletedCandles = latestCompletedBySymbol
+            )
             startPeriodicReconciliation(settings.selectedTimeframe)
             return connection.whenComplete { _, error ->
                 if (error != null) onError("Toobit WebSocket connection failed", error)
@@ -87,6 +96,11 @@ class ToobitSignalMonitor(
     private fun handleUpdate(update: ToobitCandleUpdate) {
         try {
             if (update.gapDetected) {
+                // The stream emits the prior candle as closed and then the
+                // current candle as preview. Recover on the preview only:
+                // REST history will include the just-closed candle, avoiding
+                // two backfills for the same detected gap.
+                if (update.isClosed) return
                 val endTime = marketData.getServerTimeMillis()
                 val history = marketData.getAllHistoricalCandles(
                     javadSymbol = update.javadSymbol,
@@ -100,7 +114,6 @@ class ToobitSignalMonitor(
                     update.javadSymbol,
                     history
                 )
-                if (update.isClosed) return
                 analysis.onCandleUpdate(update.copy(gapDetected = false))?.let(onSignal)
                 return
             }
