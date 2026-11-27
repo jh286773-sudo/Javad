@@ -91,6 +91,7 @@ class SelectedTimeframeAnalysis(
     fun loadHistory(
         symbol: String,
         candles: List<MarketCandle>,
+        preserveLastSignalCandle: Boolean = false,
         firstChartBarIndex: Long = 0L,
         initialCumulativeAbsoluteDelta: Double = 0.0
     ) {
@@ -111,6 +112,12 @@ class SelectedTimeframeAnalysis(
                 }
             }
         }
+        val previousSignalOpenTime = if (preserveLastSignalCandle) {
+            lastEmittedSignalOpenTime[normalized]
+        } else {
+            null
+        }
+
         val processor = LuxAlgoFvgAutoProcessor(
             chartTimeframe = settings.selectedTimeframe,
             autoThresholdEnabled = autoThresholdEnabled,
@@ -127,7 +134,11 @@ class SelectedTimeframeAnalysis(
 
         processors[normalized] = processor
         lastProcessedOpenTime[normalized] = candles.last().openTime
-        lastEmittedSignalOpenTime.remove(normalized)
+        if (preserveLastSignalCandle && previousSignalOpenTime != null) {
+            lastEmittedSignalOpenTime[normalized] = previousSignalOpenTime
+        } else {
+            lastEmittedSignalOpenTime.remove(normalized)
+        }
         lastHistoryEvaluation?.fvgState?.let { latestFvgStates[normalized] = it }
     }
 
