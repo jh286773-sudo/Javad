@@ -255,7 +255,8 @@ class LuxAlgoFvgAutoEngineTest {
     fun candleProcessorMatchesLuxAlgoHistoryOffsetsAndWarmsUpFromFirstBar() {
         val processor = LuxAlgoFvgAutoProcessor(
             chartTimeframe = AnalysisTimeframe.FIFTEEN_MINUTES,
-            autoThresholdEnabled = true
+            autoThresholdEnabled = true,
+            useHeikinAshi = false
         )
         val start = 1_700_000_100_000L - (1_700_000_100_000L % (15L * 60_000L))
         val candles = listOf(
