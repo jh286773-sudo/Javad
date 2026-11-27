@@ -122,7 +122,8 @@ class SelectedTimeframeAnalysis(
             chartTimeframe = settings.selectedTimeframe,
             autoThresholdEnabled = autoThresholdEnabled,
             firstChartBarIndex = firstChartBarIndex,
-            initialCumulativeAbsoluteDelta = initialCumulativeAbsoluteDelta
+            initialCumulativeAbsoluteDelta = initialCumulativeAbsoluteDelta,
+            useHeikinAshi = true
         )
         // Warm the full dataset in one continuous pass but retain only the
         // final snapshot; keeping every FVG-array snapshot would waste memory

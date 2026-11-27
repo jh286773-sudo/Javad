@@ -9,7 +9,20 @@ The implementation reference is the publicly available Smart Money Concepts [Lux
 
 This is a public mirror, not a claim that the file is the latest official LuxAlgo release. The adapted engine retains the source attribution and CC BY-NC-SA 4.0 notice in `engine/NOTICE.md`. This adaptation is marked non-commercial.
 
-## 1. Source input mapping
+## 1. Heikin Ashi candle source
+
+JAVAD receives standard Toobit OHLC candles and converts each candle to Heikin Ashi before supplying any price or body input to FVG + Auto Threshold. The conversion is recursive and chronological:
+
+```text
+HA close = (open + high + low + close) / 4
+HA open  = (previous HA open + previous HA close) / 2
+HA high  = max(high, HA open, HA close)
+HA low   = min(low, HA open, HA close)
+```
+
+For the first candle in the loaded history, HA open = (open + close) / 2. The transformed HA candles are used for the previous-candle body delta, current high/low, two-bars-ago high/low, FVG box boundaries, and FVG invalidation. Toobit timestamps and volume are preserved. Live previews derive from the last committed HA candle and do not advance the recursive HA state; a closed candle commits once. Thus both FVG and Auto Threshold operate on Heikin Ashi, not merely a Heikin Ashi chart display.
+
+## 2. Source input mapping
 
 The Pine helper `get_ohlc()` returns:
 
@@ -24,7 +37,7 @@ The Pine helper `get_ohlc()` returns:
 
 JAVAD keeps the last two committed chart candles per symbol to supply these offsets. Intrabar previews use the same committed history and do not advance the index or cumulative sum.
 
-## 2. Percentage delta
+## 3. Percentage delta
 
 LuxAlgo formula:
 
@@ -40,7 +53,7 @@ JAVAD formula:
 
 The previous candle must exist and its open must be positive. On the first chart candle, the previous-candle values are unavailable, so delta and threshold are undefined, matching Pine's `na` behavior.
 
-## 3. Auto Threshold
+## 4. Auto Threshold
 
 LuxAlgo Chart-mode formula:
 
@@ -59,7 +72,7 @@ At `bar_index = 0`, the division is undefined; JAVAD returns a null threshold fo
 
 Every symbol has its own cumulative sum and bar index. Repeated live updates to one forming candle are previews from the last committed state; they are not accumulated repeatedly. A candle close commits once and advances the index once.
 
-## 4. Bullish and bearish FVG conditions
+## 5. Bullish and bearish FVG conditions
 
 Bullish condition, all required simultaneously:
 
@@ -81,7 +94,7 @@ timeframeChanged == true
 
 No standalone three-candle gap can create a signal unless the corresponding Auto Threshold condition also passes.
 
-## 5. FVG box boundaries and invalidation
+## 6. FVG box boundaries and invalidation
 
 For a bullish gap:
 - Upper boundary: current candle low.
@@ -99,7 +112,7 @@ For a bearish gap:
 
 JAVAD preserves the source's strict comparisons and paired-box state. The configured box extension is one chart bar, matching the source default `fvg_extend = 1`.
 
-## 6. One chart timeframe across the entire data path
+## 7. One chart timeframe across the entire data path
 
 There is exactly one selected `AnalysisTimeframe` per JAVAD settings instance. The same interval controls:
 - Toobit REST kline interval used for historical candles.
@@ -111,7 +124,7 @@ There is no separate FVG timeframe. Changing the selected chart timeframe clears
 
 Supported chart intervals are 1m, 5m, 15m, 30m, 1h, and 2h. The initial default is 5m for the current BTCUSDT.P comparison.
 
-## 7. Toobit history window and bar index
+## 8. Toobit history window and bar index
 
 TradingView's Pine execution model calculates the script over the bars available in the chart dataset. The dataset size is constrained by TradingView's plan and chart-history availability; that limit is not a fixed part of LuxAlgo's Auto Threshold formula.
 
@@ -124,7 +137,7 @@ A live Toobit test on 2026-11-27 returned 3,499 completed 5-minute candles for e
 
 The saved TradingView comparison anchor for this project is 2026-11-09 00:00 UTC. That is 1,787 five-minute bars earlier than the first candle returned by the latest live Toobit API test. Because Auto Threshold depends on both `bar_index` and the cumulative absolute delta, the different starting candle can produce different thresholds and signals even when the formulas are identical. Exact numerical parity with TradingView still requires the same first candle and OHLC values throughout the dataset, plus matching timezone and candle availability.
 
-## 8. Live updates, closed-candle signal timing, and data gaps
+## 9. Live updates, closed-candle signal timing, and data gaps
 
 - Every forming-candle update is evaluated as a Pine realtime preview/rollback update. The current candle's high/low can make the raw FVG condition appear or disappear intrabar.
 - A qualifying preview can emit a LONG/SHORT notification intrabar. Preview does not commit cumulative Auto value, `bar_index`, or FVG arrays; the later closed snapshot commits them once. If the same candle already emitted, its close does not create a duplicate notification.
@@ -133,7 +146,7 @@ The saved TradingView comparison anchor for this project is 2026-11-09 00:00 UTC
 - Missing or out-of-order candles invalidate the affected symbol's processor; analysis must be warmed up again from REST history before continuing.
 - Every selected contract has independent history, bar index, cumulative delta, FVG zones, and per-candle notification memory.
 
-## 9. Known parity boundary — not yet proven
+## 10. Known parity boundary — not yet proven
 
 The formulas and indexing behavior above are mapped to the cited public LuxAlgo source mirror. Exact numerical parity with the TradingView Toobit chart is **not yet proven**. It still requires comparing the timestamp and OHLC values for each candle, especially:
 - The exact first historical candle available to both systems.

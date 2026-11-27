@@ -9,6 +9,36 @@ import kotlin.math.abs
 
 class LuxAlgoFvgAutoEngineTest {
     @Test
+    fun heikinAshiCandlesDriveBothFvgAndAutoThreshold() {
+        val timeframe = AnalysisTimeframe.FIVE_MINUTES
+        val interval = timeframe.durationMillis
+        val start = 1_700_000_000_000L - (1_700_000_000_000L % interval)
+        val processor = LuxAlgoFvgAutoProcessor(
+            chartTimeframe = timeframe,
+            useHeikinAshi = true
+        )
+
+        // The first two standard candles produce flat HA candles at 100.
+        processor.process(candle(100.0, 100.0, 101.0, 99.0, start))
+        processor.process(candle(100.0, 100.0, 101.0, 99.0, start + interval))
+        // HA bar 2: O=100, C=105.25, H=111, L=100.
+        processor.process(candle(100.0, 110.0, 111.0, 100.0, start + 2L * interval))
+        // HA bar 3: O=102.625, C=115.25, H=121, L=102.625.
+        val result = processor.process(
+            candle(110.0, 120.0, 121.0, 110.0, start + 3L * interval)
+        )
+
+        assertEquals(5.25, result.deltaPercent!!, 1e-9)
+        assertEquals(3.5, result.autoThreshold!!, 1e-9)
+        assertTrue(result.bullishFvg)
+        val zone = result.fvgState!!.formedZones.single()
+        assertEquals(102.625, zone.maxBox.top, 1e-9)
+        assertEquals(101.8125, zone.maxBox.bottom, 1e-9)
+        assertEquals(101.8125, zone.minBox.top, 1e-9)
+        assertEquals(101.0, zone.minBox.bottom, 1e-9)
+    }
+
+    @Test
     fun autoThresholdUsesEveryChartBarCumulativeAbsoluteDeltaAndBarIndex() {
         val calculator = LuxAlgoFvgAutoCalculator(autoThresholdEnabled = true)
         val first = calculator.evaluate(input(open = 100.0, close = 100.1))

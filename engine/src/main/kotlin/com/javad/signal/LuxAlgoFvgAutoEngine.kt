@@ -180,7 +180,8 @@ class LuxAlgoFvgAutoProcessor(
     autoThresholdEnabled: Boolean = true,
     private val fvgExtend: Int = 1,
     firstChartBarIndex: Long = 0L,
-    initialCumulativeAbsoluteDelta: Double = 0.0
+    initialCumulativeAbsoluteDelta: Double = 0.0,
+    private val useHeikinAshi: Boolean = false
 ) {
     private val calculator = LuxAlgoFvgAutoCalculator(
         autoThresholdEnabled = autoThresholdEnabled,
@@ -208,7 +209,11 @@ class LuxAlgoFvgAutoProcessor(
     fun activeFvgZones(): List<FvgZone> = bullishZones.toList() + bearishZones.toList()
 
     private fun evaluateCandle(candle: MarketCandle, commit: Boolean): FvgEvaluation {
-        val input = inputFor(candle)
+        // Convert exchange OHLC to Heikin Ashi before every strategy input.
+        // recentCandles stores committed analysis candles, so live previews
+        // always derive from the same prior HA candle (Pine-style rollback).
+        val analysisCandle = toAnalysisCandle(candle)
+        val input = inputFor(analysisCandle)
         val base = if (commit) calculator.evaluate(input) else calculator.preview(input)
 
         // Pine iterates the existing arrays and deletes the paired boxes when
@@ -217,39 +222,39 @@ class LuxAlgoFvgAutoProcessor(
         val nextBearish = bearishZones.toMutableList()
         val removed = mutableListOf<FvgZone>()
 
-        val removedBullish = nextBullish.filter { candle.low < it.minBox.bottom }
+        val removedBullish = nextBullish.filter { analysisCandle.low < it.minBox.bottom }
         nextBullish.removeAll(removedBullish.toSet())
         removed += removedBullish
 
         // LuxAlgo checks high > box.get_top(bearish_fvg_max), which is src_h
         // (the lower boundary of the bearish gap), not its upper boundary.
-        val removedBearish = nextBearish.filter { candle.high > it.maxBox.top }
+        val removedBearish = nextBearish.filter { analysisCandle.high > it.maxBox.top }
         nextBearish.removeAll(removedBearish.toSet())
         removed += removedBearish
 
         val formed = mutableListOf<FvgZone>()
         if (base.bullishFvg) {
             val oldHigh = input.highTwoBarsAgo!!
-            val midpoint = (candle.low + oldHigh) / 2.0
+            val midpoint = (analysisCandle.low + oldHigh) / 2.0
             formed += FvgZone(
                 direction = FvgDirection.LONG,
                 chartBarIndex = base.chartBarIndex,
                 leftBarIndex = base.chartBarIndex - 1L,
                 rightBarIndex = base.chartBarIndex + fvgExtend,
-                maxBox = FvgBox(top = candle.low, bottom = midpoint),
+                maxBox = FvgBox(top = analysisCandle.low, bottom = midpoint),
                 minBox = FvgBox(top = midpoint, bottom = oldHigh)
             )
         }
 
         if (base.bearishFvg) {
             val oldLow = input.lowTwoBarsAgo!!
-            val midpoint = (candle.high + oldLow) / 2.0
+            val midpoint = (analysisCandle.high + oldLow) / 2.0
             formed += FvgZone(
                 direction = FvgDirection.SHORT,
                 chartBarIndex = base.chartBarIndex,
                 leftBarIndex = base.chartBarIndex - 1L,
                 rightBarIndex = base.chartBarIndex + fvgExtend,
-                maxBox = FvgBox(top = candle.high, bottom = midpoint),
+                maxBox = FvgBox(top = analysisCandle.high, bottom = midpoint),
                 minBox = FvgBox(top = midpoint, bottom = oldLow)
             )
         }
@@ -270,11 +275,36 @@ class LuxAlgoFvgAutoProcessor(
             bullishZones.addAll(nextBullish)
             bearishZones.clear()
             bearishZones.addAll(nextBearish)
-            recentCandles += candle
+            recentCandles += analysisCandle
             if (recentCandles.size > 2) recentCandles.removeAt(0)
         }
 
         return base.copy(fvgState = state)
+    }
+
+    /**
+     * Builds a standard Heikin Ashi candle from the Toobit exchange candle.
+     * The first HA open is (open + close) / 2; subsequent HA opens are the
+     * average of the previous committed HA open and close. HA close is the
+     * average of the current standard OHLC; HA wicks include HA open/close.
+     */
+    private fun toAnalysisCandle(candle: MarketCandle): MarketCandle {
+        if (!useHeikinAshi) return candle
+        val previousHeikinAshi = recentCandles.lastOrNull()
+        val heikinAshiClose = (candle.open + candle.high + candle.low + candle.close) / 4.0
+        val heikinAshiOpen = if (previousHeikinAshi == null) {
+            (candle.open + candle.close) / 2.0
+        } else {
+            (previousHeikinAshi.open + previousHeikinAshi.close) / 2.0
+        }
+        return MarketCandle(
+            openTime = candle.openTime,
+            open = heikinAshiOpen,
+            high = maxOf(candle.high, heikinAshiOpen, heikinAshiClose),
+            low = minOf(candle.low, heikinAshiOpen, heikinAshiClose),
+            close = heikinAshiClose,
+            volume = candle.volume
+        )
     }
 
     private fun inputFor(candle: MarketCandle): FvgInput {
