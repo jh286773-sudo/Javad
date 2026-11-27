@@ -26,17 +26,13 @@ object TradingViewBasicHistoryWindow {
         return serverTimeMillis - (serverTimeMillis % timeframe.durationMillis)
     }
 
+    @Suppress("UNUSED_PARAMETER")
     fun startTimeMillis(
         timeframe: AnalysisTimeframe,
         endTimeMillis: Long,
         zoneId: ZoneId = ZoneOffset.UTC
     ): Long {
         require(endTimeMillis > 0L) { "endTimeMillis must be positive" }
-        // Retain the parameter for source compatibility; Toobit candle
-        // boundaries are UTC epoch-aligned, not local-calendar aligned.
-        require(zoneId == ZoneOffset.UTC || zoneId.rules.isFixedOffset) {
-            "History windows must use a fixed UTC-compatible timezone"
-        }
         val alignedEnd = endTimeMillis - (endTimeMillis % timeframe.durationMillis)
         return alignedEnd - HISTORICAL_BARS.toLong() * timeframe.durationMillis
     }
