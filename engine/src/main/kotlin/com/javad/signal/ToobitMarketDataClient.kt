@@ -129,7 +129,7 @@ class ToobitMarketDataClient(
             val requestPath = "/quote/v1/klines" +
                 "?symbol=${encode(contract.exchangeSymbol)}" +
                 "&interval=${encode(timeframe.apiInterval)}" +
-                "&startTime=0&endTime=${cursorExclusive - 1L}&limit=$pageLimit"
+                "&startTime=0&endTime=$cursorExclusive&limit=$pageLimit"
             val rows = getJson(requestPath)
             if (!rows.isArray) {
                 throw ToobitApiException("Toobit returned a non-array kline page")
@@ -175,7 +175,7 @@ class ToobitMarketDataClient(
             val requestPath = "/quote/v1/klines" +
                 "?symbol=${encode(contract.exchangeSymbol)}" +
                 "&interval=${encode(sourceInterval)}" +
-                "&startTime=$cursor&endTime=${pageEndExclusive - 1L}&limit=$pageLimit"
+                "&startTime=${cursor - 1L}&endTime=${pageEndExclusive - 1L}&limit=$pageLimit"
             val rows = getJson(requestPath)
             if (!rows.isArray) {
                 throw ToobitApiException("Toobit returned a non-array kline page")
