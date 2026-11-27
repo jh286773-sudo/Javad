@@ -146,9 +146,10 @@ class ToobitSignalMonitor(
                 require(history.isNotEmpty()) {
                     "Toobit returned no reconciliation history for ${contract.javadSymbol}"
                 }
-                val oldRange = analysis.historyRange(contract.javadSymbol)
-                val newRange = history.first().openTime to history.last().openTime
-                if (oldRange != newRange) {
+                // Compare every candle, not only the first/last timestamps.
+                // Internal gaps or revised OHLC values also invalidate HA,
+                // bar_index and cumulative Auto Threshold state.
+                if (!analysis.historyMatches(contract.javadSymbol, history)) {
                     analysis.loadHistory(
                         contract.javadSymbol,
                         history
