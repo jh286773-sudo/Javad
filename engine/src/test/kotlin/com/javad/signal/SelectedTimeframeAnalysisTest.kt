@@ -25,6 +25,26 @@ class SelectedTimeframeAnalysisTest {
     }
 
     @Test
+    fun historyMatchesChecksEveryCandleNotOnlyTheRange() {
+        val settings = AnalysisSettings(
+            selectedTimeframe = AnalysisTimeframe.FIVE_MINUTES,
+            symbols = setOf("BTCUSDT.P")
+        )
+        val analysis = SelectedTimeframeAnalysis(settings)
+        val interval = AnalysisTimeframe.FIVE_MINUTES.durationMillis
+        val start = 1_700_000_100_000L
+        val history = (0 until 5).map { index -> testCandle(start + index * interval) }
+        analysis.loadHistory("BTCUSDT.P", history)
+
+        assertEquals(true, analysis.historyMatches("BTCUSDT.P", history))
+
+        val changedMiddleCandle = history.toMutableList().also {
+            it[2] = it[2].copy(close = 100.75)
+        }
+        assertEquals(false, analysis.historyMatches("BTCUSDT.P", changedMiddleCandle))
+    }
+
+    @Test
     fun historyLoaderRejectsEmptyHistory() {
         val settings = AnalysisSettings(
             selectedTimeframe = AnalysisTimeframe.FIVE_MINUTES,
