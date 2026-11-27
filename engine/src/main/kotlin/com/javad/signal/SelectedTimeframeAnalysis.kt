@@ -1,9 +1,9 @@
 package com.javad.signal
 
 /**
- * A LuxAlgo FVG + Auto signal confirmed only after its source candle closes.
- * Same-direction repeats are suppressed until an opposite-direction signal
- * is confirmed on a later closed candle.
+ * A LuxAlgo FVG + Auto signal can be delivered intrabar, matching the source
+ * indicator's realtime behavior. Same-direction repeats are suppressed until
+ * an opposite-direction signal appears.
  */
 data class TimeframeSignal(
     val symbol: String,
@@ -21,11 +21,10 @@ data class TimeframeSignal(
  * selected interval is the LuxAlgo chart timeframe; FVG uses Chart mode
  * (`fvg_tf = ""`), never an independent FVG interval.
  *
- * Every forming-candle update may preview the raw FVG condition and update
- * the displayed preview state using Pine rollback semantics. Preview updates
- * never emit a signal and never commit ta.cum, bar_index, or FVG arrays.
- * A LONG/SHORT signal is evaluated for delivery only from the final closed
- * candle snapshot, after that snapshot commits the source calculation state.
+ * Every forming-candle update previews the raw FVG condition and displayed
+ * FVG-array state using Pine rollback semantics. A qualifying LONG/SHORT may
+ * be delivered intrabar, as in LuxAlgo; preview never commits ta.cum, bar_index,
+ * or FVG arrays. The final closed snapshot commits source calculation state.
  * Repeated signals in the same direction are suppressed until the opposite
  * direction is confirmed on a later closed candle.
  *
@@ -173,9 +172,8 @@ class SelectedTimeframeAnalysis(
             lastProcessedOpenTime[normalized] = update.candle.openTime
         }
 
-        // Forming candles are preview-only. Even if the raw LuxAlgo
-        // conditions become true intrabar, no signal is emitted before close.
-        if (!update.isClosed) return null
+        // LuxAlgo evaluates the current bar intrabar. A qualifying preview
+        // can therefore emit immediately; the later close only commits state.
         if (evaluation.bullishFvg == evaluation.bearishFvg) return null
         if (lastEmittedSignalOpenTime[normalized] == update.candle.openTime) return null
         val delta = evaluation.deltaPercent ?: return null
