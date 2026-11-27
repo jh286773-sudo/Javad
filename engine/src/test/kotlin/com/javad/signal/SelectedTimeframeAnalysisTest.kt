@@ -102,6 +102,44 @@ class SelectedTimeframeAnalysisTest {
     }
 
     @Test
+    fun sameDirectionRemainsSuppressedAfterHistoryRecovery() {
+        val symbol = "BTCUSDT.P"
+        val timeframe = AnalysisTimeframe.FIVE_MINUTES
+        val interval = timeframe.durationMillis
+        val start = alignedStart(timeframe)
+        val analysis = SelectedTimeframeAnalysis(
+            AnalysisSettings(timeframe, setOf(symbol))
+        )
+        val history = listOf(
+            candle(100.0, 100.0, 105.0, 95.0, start),
+            candle(200.0, 200.0, 210.0, 190.0, start + interval),
+            candle(200.0, 215.0, 220.0, 195.0, start + 2L * interval)
+        )
+        analysis.loadHistory(symbol, history)
+
+        val firstLong = candle(230.0, 299.0, 300.0, 230.0, start + 3L * interval)
+        assertEquals(
+            FvgDirection.LONG,
+            analysis.onCandleUpdate(
+                ToobitCandleUpdate(symbol, firstLong, isClosed = true, timeframe = timeframe)
+            )?.signal?.direction
+        )
+
+        // A stream recovery reloads candles but must not re-arm a same-side alert.
+        analysis.loadHistory(
+            symbol,
+            history + firstLong,
+            preserveSignalDirection = true
+        )
+        val repeatedLong = candle(500.0, 226.0, 500.0, 225.0, start + 4L * interval)
+        assertNull(
+            analysis.onCandleUpdate(
+                ToobitCandleUpdate(symbol, repeatedLong, isClosed = true, timeframe = timeframe)
+            )
+        )
+    }
+
+    @Test
     fun timeframeChangeClearsOldHistoryAndRejectsOldStreamInterval() {
         val symbol = "BTCUSDT.P"
         val analysis = SelectedTimeframeAnalysis(
