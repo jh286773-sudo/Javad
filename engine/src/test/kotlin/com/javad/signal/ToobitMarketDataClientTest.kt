@@ -121,6 +121,21 @@ class ToobitMarketDataClientTest {
     }
 
     @Test
+    fun paginationRejectsDuplicateCandles() {
+        val client = ToobitMarketDataClient()
+        val duration = 60_000L
+        assertFailsWith<ToobitApiException> {
+            client.collectPages(0L, 2L * duration, duration, 2) { cursor ->
+                if (cursor == 0L) {
+                    listOf(testCandle(0L), testCandle(0L), testCandle(duration))
+                } else {
+                    listOf(testCandle(duration))
+                }
+            }
+        }
+    }
+
+    @Test
     fun paginationRejectsEmptyPageBeforeRangeEnds() {
         val client = ToobitMarketDataClient()
         val duration = 60_000L
