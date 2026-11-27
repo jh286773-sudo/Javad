@@ -45,6 +45,45 @@ class SelectedTimeframeAnalysisTest {
     }
 
     @Test
+    fun selectedAnalysisRetainsFullHeikinAshiHistoryAndKeepsRawSnapshotSeparate() {
+        val timeframe = AnalysisTimeframe.FIVE_MINUTES
+        val interval = timeframe.durationMillis
+        val start = 1_700_000_100_000L - (1_700_000_100_000L % interval)
+        val analysis = SelectedTimeframeAnalysis(
+            AnalysisSettings(selectedTimeframe = timeframe, symbols = setOf("BTCUSDT.P"))
+        )
+        val raw = listOf(
+            MarketCandle(start, 100.0, 104.0, 99.0, 102.0, 10.0),
+            MarketCandle(start + interval, 102.0, 106.0, 101.0, 104.0, 11.0),
+            MarketCandle(start + 2L * interval, 104.0, 108.0, 100.0, 103.0, 12.0)
+        )
+
+        analysis.loadHistory("BTCUSDT.P", raw)
+        val ha = analysis.heikinAshiHistory("BTCUSDT.P")
+        assertEquals(3, ha.size)
+        assertEquals((100.0 + 102.0) / 2.0, ha[0].open, 1e-12)
+        assertEquals((100.0 + 104.0 + 99.0 + 102.0) / 4.0, ha[0].close, 1e-12)
+        assertEquals((ha[0].open + ha[0].close) / 2.0, ha[1].open, 1e-12)
+        assertEquals((ha[1].open + ha[1].close) / 2.0, ha[2].open, 1e-12)
+
+        val liveRaw = MarketCandle(start + 3L * interval, 103.0, 110.0, 102.0, 107.0, 13.0)
+        val preview = analysis.onCandleUpdate(
+            ToobitCandleUpdate("BTCUSDT.P", liveRaw, false, false, timeframe)
+        )
+        assertEquals(3, analysis.heikinAshiHistory("BTCUSDT.P").size)
+        if (preview != null) {
+            assertEquals((ha.last().open + ha.last().close) / 2.0, preview.candle.open, 1e-12)
+        }
+
+        analysis.onCandleUpdate(
+            ToobitCandleUpdate("BTCUSDT.P", liveRaw, true, false, timeframe)
+        )
+        assertEquals(4, analysis.heikinAshiHistory("BTCUSDT.P").size)
+        assertEquals(raw + liveRaw, listOf(raw[0], raw[1], raw[2], liveRaw))
+        assertEquals(true, analysis.historyMatches("BTCUSDT.P", raw + liveRaw))
+    }
+
+    @Test
     fun historyLoaderRejectsEmptyHistory() {
         val settings = AnalysisSettings(
             selectedTimeframe = AnalysisTimeframe.FIVE_MINUTES,
