@@ -14,8 +14,7 @@ enum class AnalysisTimeframe(
     FIFTEEN_MINUTES("15m", "15 دقیقه", 15L * 60_000L),
     THIRTY_MINUTES("30m", "30 دقیقه", 30L * 60_000L),
     ONE_HOUR("1h", "1 ساعت", 60L * 60_000L),
-    TWO_HOURS("2h", "2 ساعت", 2L * 60L * 60_000L),
-    FOUR_HOURS("4h", "4 ساعت", 4L * 60L * 60_000L)
+    TWO_HOURS("2h", "2 ساعت", 2L * 60L * 60_000L)
 }
 
 /**
