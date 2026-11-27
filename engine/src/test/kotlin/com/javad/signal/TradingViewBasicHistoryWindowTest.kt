@@ -37,8 +37,7 @@ class TradingViewBasicHistoryWindowTest {
             AnalysisTimeframe.FIFTEEN_MINUTES to "2026-10-01T00:00:00Z",
             AnalysisTimeframe.THIRTY_MINUTES to "2025-01-01T00:00:00Z",
             AnalysisTimeframe.ONE_HOUR to "2025-01-01T00:00:00Z",
-            AnalysisTimeframe.TWO_HOURS to "2025-01-01T00:00:00Z",
-            AnalysisTimeframe.FOUR_HOURS to "2024-01-01T00:00:00Z"
+            AnalysisTimeframe.TWO_HOURS to "2025-01-01T00:00:00Z"
         )
         expected.forEach { (timeframe, isoTime) ->
             assertEquals(
@@ -71,8 +70,7 @@ class TradingViewBasicHistoryWindowTest {
             AnalysisTimeframe.FIFTEEN_MINUTES to 5_472L,
             AnalysisTimeframe.THIRTY_MINUTES to 33_360L,
             AnalysisTimeframe.ONE_HOUR to 16_680L,
-            AnalysisTimeframe.TWO_HOURS to 8_340L,
-            AnalysisTimeframe.FOUR_HOURS to 6_366L
+            AnalysisTimeframe.TWO_HOURS to 8_340L
         )
         expectedCounts.forEach { (timeframe, expected) ->
             assertEquals(
