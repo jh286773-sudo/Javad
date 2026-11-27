@@ -119,7 +119,9 @@ class ToobitMarketDataClient(
         require(pageLimit in 1..1000) { "Toobit kline page limit must be between 1 and 1000" }
 
         val serverTime = getServerTimeMillis()
-        val calculationTime = minOf(serverTime, endTimeMillis)
+        // Toobit's freshly read server time is authoritative; do not let a
+        // caller's earlier timestamp make startup miss a candle boundary.
+        val calculationTime = serverTime
         val currentCandleOpen = TradingViewBasicHistoryWindow.latestCandleOpenTimeMillis(
             timeframe,
             calculationTime
