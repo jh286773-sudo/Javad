@@ -25,9 +25,9 @@ data class TimeframeSignal(
  * FVG-array state using Pine rollback semantics. A qualifying LONG/SHORT may
  * be delivered intrabar, as in LuxAlgo; preview never commits ta.cum, bar_index,
  * or FVG arrays. The final closed snapshot commits source calculation state.
- * Each qualifying candle can emit independently, including repeated signals
- * in the same direction. Only duplicate notifications for the same candle
- * are suppressed.
+ * Every qualifying evaluation can emit independently, including repeated
+ * signals on the same candle and consecutive signals in the same direction.
+ * No signal-repeat or last-direction filter is applied.
  *
  * Numbering follows Pine's chart dataset: the earliest candle returned by
  * Toobit's history request is bar_index 0; each subsequent candle gets the
@@ -48,7 +48,6 @@ class SelectedTimeframeAnalysis(
     private val lastProcessedOpenTime = mutableMapOf<String, Long>()
     private val firstProcessedOpenTime = mutableMapOf<String, Long>()
     private val latestFvgStates = mutableMapOf<String, FvgStateUpdate>()
-    private val lastEmittedSignalOpenTime = mutableMapOf<String, Long>()
 
     @Synchronized
     fun currentSettings(): AnalysisSettings = settings
@@ -70,14 +69,12 @@ class SelectedTimeframeAnalysis(
             lastProcessedOpenTime.clear()
             firstProcessedOpenTime.clear()
             latestFvgStates.clear()
-            lastEmittedSignalOpenTime.clear()
         } else {
             removedSymbols.forEach { symbol ->
                 processors.remove(symbol)
                 lastProcessedOpenTime.remove(symbol)
                 firstProcessedOpenTime.remove(symbol)
                 latestFvgStates.remove(symbol)
-                lastEmittedSignalOpenTime.remove(symbol)
             }
         }
     }
@@ -94,7 +91,6 @@ class SelectedTimeframeAnalysis(
     fun loadHistory(
         symbol: String,
         candles: List<MarketCandle>,
-        preserveLastSignalCandle: Boolean = false,
         firstChartBarIndex: Long = 0L,
         initialCumulativeAbsoluteDelta: Double = 0.0
     ) {
@@ -115,12 +111,6 @@ class SelectedTimeframeAnalysis(
                 }
             }
         }
-        val previousSignalOpenTime = if (preserveLastSignalCandle) {
-            lastEmittedSignalOpenTime[normalized]
-        } else {
-            null
-        }
-
         val processor = LuxAlgoFvgAutoProcessor(
             chartTimeframe = settings.selectedTimeframe,
             autoThresholdEnabled = autoThresholdEnabled,
@@ -139,11 +129,6 @@ class SelectedTimeframeAnalysis(
         processors[normalized] = processor
         firstProcessedOpenTime[normalized] = candles.first().openTime
         lastProcessedOpenTime[normalized] = candles.last().openTime
-        if (preserveLastSignalCandle && previousSignalOpenTime != null) {
-            lastEmittedSignalOpenTime[normalized] = previousSignalOpenTime
-        } else {
-            lastEmittedSignalOpenTime.remove(normalized)
-        }
         lastHistoryEvaluation?.fvgState?.let { latestFvgStates[normalized] = it }
     }
 
@@ -206,7 +191,6 @@ class SelectedTimeframeAnalysis(
         // LuxAlgo evaluates the current bar intrabar. A qualifying preview
         // can therefore emit immediately; the later close only commits state.
         if (evaluation.bullishFvg == evaluation.bearishFvg) return null
-        if (lastEmittedSignalOpenTime[normalized] == update.candle.openTime) return null
         val delta = evaluation.deltaPercent ?: return null
         val threshold = evaluation.autoThreshold ?: return null
         val direction = if (evaluation.bullishFvg) FvgDirection.LONG else FvgDirection.SHORT
@@ -217,7 +201,6 @@ class SelectedTimeframeAnalysis(
             deltaPercent = delta,
             autoThreshold = threshold
         )
-        lastEmittedSignalOpenTime[normalized] = update.candle.openTime
         return TimeframeSignal(
             symbol = normalized,
             timeframe = settings.selectedTimeframe,
@@ -253,6 +236,5 @@ class SelectedTimeframeAnalysis(
         lastProcessedOpenTime.remove(symbol)
         firstProcessedOpenTime.remove(symbol)
         latestFvgStates.remove(symbol)
-        lastEmittedSignalOpenTime.remove(symbol)
     }
 }
