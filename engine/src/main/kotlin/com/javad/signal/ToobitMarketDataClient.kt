@@ -214,7 +214,7 @@ class ToobitMarketDataClient(
                 throw ToobitApiException("Toobit returned more candles than the requested page limit")
             }
             if (page.isEmpty()) {
-                throw ToobitApiException("Toobit returned an empty page before the requested history range was complete")
+                throw ToobitApiException("Toobit returned no candle at required open time $cursor; the requested history window cannot be completed, so partial history is rejected")
             }
 
             val fresh = page.filter { it.openTime >= cursor && it.openTime < endTimeMillis }
