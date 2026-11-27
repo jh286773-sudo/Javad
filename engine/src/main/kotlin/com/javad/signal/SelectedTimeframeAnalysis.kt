@@ -46,6 +46,7 @@ class SelectedTimeframeAnalysis(
     private var settings: AnalysisSettings = initialSettings
     private val processors = mutableMapOf<String, LuxAlgoFvgAutoProcessor>()
     private val lastProcessedOpenTime = mutableMapOf<String, Long>()
+    private val firstProcessedOpenTime = mutableMapOf<String, Long>()
     private val latestFvgStates = mutableMapOf<String, FvgStateUpdate>()
     private val lastEmittedSignalOpenTime = mutableMapOf<String, Long>()
 
@@ -67,12 +68,15 @@ class SelectedTimeframeAnalysis(
         if (timeframeChanged) {
             processors.clear()
             lastProcessedOpenTime.clear()
+            firstProcessedOpenTime.clear()
             latestFvgStates.clear()
             lastEmittedSignalOpenTime.clear()
         } else {
             removedSymbols.forEach { symbol ->
                 processors.remove(symbol)
                 lastProcessedOpenTime.remove(symbol)
+        firstProcessedOpenTime.remove(symbol)
+                firstProcessedOpenTime.remove(symbol)
                 latestFvgStates.remove(symbol)
                 lastEmittedSignalOpenTime.remove(symbol)
             }
@@ -134,6 +138,7 @@ class SelectedTimeframeAnalysis(
         }
 
         processors[normalized] = processor
+        firstProcessedOpenTime[normalized] = candles.first().openTime
         lastProcessedOpenTime[normalized] = candles.last().openTime
         if (preserveLastSignalCandle && previousSignalOpenTime != null) {
             lastEmittedSignalOpenTime[normalized] = previousSignalOpenTime
@@ -226,6 +231,15 @@ class SelectedTimeframeAnalysis(
     @Synchronized
     fun isHistoryLoaded(symbol: String): Boolean =
         processors.containsKey(symbol.trim().uppercase())
+
+    /** Earliest and latest committed candle timestamps for REST reconciliation. */
+    @Synchronized
+    fun historyRange(symbol: String): Pair<Long, Long>? {
+        val normalized = symbol.trim().uppercase()
+        val latest = lastProcessedOpenTime[normalized] ?: return null
+        val first = firstProcessedOpenTime[normalized] ?: return null
+        return first to latest
+    }
 
     private fun normalizeSelectedSymbol(symbol: String): String {
         val normalized = symbol.trim().uppercase()
