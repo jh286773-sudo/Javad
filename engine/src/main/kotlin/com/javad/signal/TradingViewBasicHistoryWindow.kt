@@ -3,64 +3,96 @@ package com.javad.signal
 import java.time.Instant
 
 /**
- * JAVAD's UTC rolling history window.
+ * Calculates the exact rolling history window from Toobit's latest completed
+ * candle and the configured target candle count for the selected timeframe.
  *
- * The left edge advances by exactly one UTC day at each UTC midnight.
- * The right edge is live: latestCandleOpenTimeMillis follows the open time
- * of the currently forming/latest market candle and advances on each new bar.
- * The REST history end remains exclusive at that candle's open time, so REST
- * seeds only completed bars; the WebSocket supplies the current forming bar.
+ * The current/forming candle is excluded from REST history and supplied by
+ * WebSocket as a preview. At UTC midnight the left edge advances by one day.
  */
 object TradingViewBasicHistoryWindow {
     private const val DAY_MILLIS = 24L * 60L * 60L * 1000L
-    private val referenceTimeMillis = Instant.parse("2026-11-27T00:00:00Z").toEpochMilli()
 
-    private fun observedFirstCandleMillis(timeframe: AnalysisTimeframe): Long {
-        val firstCandle = when (timeframe) {
-            AnalysisTimeframe.ONE_MINUTE -> "2026-11-23T00:00:00Z"
-            AnalysisTimeframe.FIVE_MINUTES -> "2026-11-09T00:00:00Z"
-            AnalysisTimeframe.FIFTEEN_MINUTES -> "2026-10-01T00:00:00Z"
-            AnalysisTimeframe.THIRTY_MINUTES,
-            AnalysisTimeframe.ONE_HOUR,
-            AnalysisTimeframe.TWO_HOURS -> "2025-01-01T00:00:00Z"
-        }
-        return Instant.parse(firstCandle).toEpochMilli()
+    /**
+     * User-confirmed history counts at the end-of-day reference boundary.
+     * These are per-timeframe counts, not a universal fixed cap.
+     */
+    fun targetCandleCount(timeframe: AnalysisTimeframe): Long = when (timeframe) {
+        AnalysisTimeframe.ONE_MINUTE -> 7_200L
+        AnalysisTimeframe.FIVE_MINUTES -> 5_472L
+        AnalysisTimeframe.FIFTEEN_MINUTES -> 5_568L
+        AnalysisTimeframe.THIRTY_MINUTES -> 33_408L
+        AnalysisTimeframe.ONE_HOUR -> 7_944L
+        AnalysisTimeframe.TWO_HOURS -> 8_352L
     }
 
-    /** First open-time included in the rolling dataset; moves at UTC midnight only. */
-    fun startTimeMillis(timeframe: AnalysisTimeframe, serverTimeMillis: Long): Long {
-        require(serverTimeMillis > 0L) { "serverTimeMillis must be positive" }
-        val elapsedUtcDays = ((serverTimeMillis - referenceTimeMillis) / DAY_MILLIS).coerceAtLeast(0L)
-        val start = observedFirstCandleMillis(timeframe) + elapsedUtcDays * DAY_MILLIS
-        require(start % timeframe.durationMillis == 0L) {
-            "Configured history anchor is not aligned to ${timeframe.apiInterval}"
-        }
-        return start
-    }
-
-    /** Open time of the latest/current market candle; advances independently of UTC midnight. */
+    /** Open time of the current/forming candle, aligned to the selected interval. */
     fun latestCandleOpenTimeMillis(timeframe: AnalysisTimeframe, serverTimeMillis: Long): Long {
         require(serverTimeMillis > 0L) { "serverTimeMillis must be positive" }
         return serverTimeMillis - (serverTimeMillis % timeframe.durationMillis)
     }
 
-    /** Exclusive REST end boundary: current candle open time, so REST returns completed candles only. */
+    /**
+     * Exclusive REST end boundary. The candle opening at this timestamp is
+     * forming and must not be included in the completed historical dataset.
+     */
     fun endTimeMillis(timeframe: AnalysisTimeframe, serverTimeMillis: Long): Long =
         latestCandleOpenTimeMillis(timeframe, serverTimeMillis)
 
-    /** Number of completed candles fetched by REST (current forming candle excluded). */
-    fun expectedCompletedCandleCount(timeframe: AnalysisTimeframe, serverTimeMillis: Long): Long {
-        val start = startTimeMillis(timeframe, serverTimeMillis)
-        val end = endTimeMillis(timeframe, serverTimeMillis)
-        require(start <= end) { "History start is later than its completed end boundary" }
-        return (end - start) / timeframe.durationMillis
+    /**
+     * Number of candle slots from the current candle open up to, but excluding,
+     * the next UTC midnight. This includes the current forming candle slot.
+     */
+    fun remainingCandleCountUntilNextUtcMidnight(
+        timeframe: AnalysisTimeframe,
+        serverTimeMillis: Long
+    ): Long {
+        require(serverTimeMillis > 0L) { "serverTimeMillis must be positive" }
+        val currentOpen = latestCandleOpenTimeMillis(timeframe, serverTimeMillis)
+        val nextUtcMidnight = (serverTimeMillis / DAY_MILLIS + 1L) * DAY_MILLIS
+        val remainingMillis = nextUtcMidnight - currentOpen
+        require(remainingMillis >= 0L && remainingMillis % timeframe.durationMillis == 0L) {
+            "UTC midnight is not aligned to the selected timeframe"
+        }
+        return remainingMillis / timeframe.durationMillis
     }
 
-    /** Total candles in the live window, including its latest forming candle. */
-    fun expectedLiveCandleCount(timeframe: AnalysisTimeframe, serverTimeMillis: Long): Long {
-        val start = startTimeMillis(timeframe, serverTimeMillis)
-        val latest = latestCandleOpenTimeMillis(timeframe, serverTimeMillis)
-        require(start <= latest) { "History start is later than the latest market candle" }
-        return (latest - start) / timeframe.durationMillis + 1L
+    /**
+     * Completed candles to load, including the latest completed candle.
+     * Subtracting the remaining slots from the timeframe's target count makes
+     * the earliest candle move automatically at the UTC day boundary.
+     */
+    fun expectedCompletedCandleCount(
+        timeframe: AnalysisTimeframe,
+        serverTimeMillis: Long
+    ): Long {
+        val count = targetCandleCount(timeframe) -
+            remainingCandleCountUntilNextUtcMidnight(timeframe, serverTimeMillis)
+        require(count > 0L) {
+            "Not enough completed candles exist yet for the configured " +
+                timeframe.apiInterval + " history window"
+        }
+        return count
+    }
+
+    /** First candle open time, derived from the actual latest completed candle. */
+    fun startTimeMillis(timeframe: AnalysisTimeframe, serverTimeMillis: Long): Long {
+        val currentOpen = latestCandleOpenTimeMillis(timeframe, serverTimeMillis)
+        val latestCompletedOpen = currentOpen - timeframe.durationMillis
+        val completedCount = expectedCompletedCandleCount(timeframe, serverTimeMillis)
+        val start = latestCompletedOpen - (completedCount - 1L) * timeframe.durationMillis
+        require(start > 0L && start % timeframe.durationMillis == 0L) {
+            "Calculated history start is invalid for " + timeframe.apiInterval
+        }
+        return start
+    }
+
+    /** Live window count adds the current forming candle as an uncommitted preview. */
+    fun expectedLiveCandleCount(timeframe: AnalysisTimeframe, serverTimeMillis: Long): Long =
+        expectedCompletedCandleCount(timeframe, serverTimeMillis) + 1L
+
+    /** UTC midnight timestamp strictly after the supplied exchange time. */
+    fun nextUtcMidnightMillis(serverTimeMillis: Long): Long {
+        require(serverTimeMillis > 0L) { "serverTimeMillis must be positive" }
+        return (serverTimeMillis / DAY_MILLIS + 1L) * DAY_MILLIS
     }
 }
