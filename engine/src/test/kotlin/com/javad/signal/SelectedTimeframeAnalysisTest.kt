@@ -99,6 +99,9 @@ class SelectedTimeframeAnalysisTest {
             FvgDirection.LONG,
             analysis.onCandleUpdate(update(firstLong))?.signal?.direction
         )
+        // A REST backfill after reconnect must not repeat an alert already
+        // emitted for this still-forming candle.
+        analysis.loadHistory("BTCUSDT.P", history, preserveLastSignalCandle = true)
         assertEquals(null, analysis.onCandleUpdate(update(firstLong)))
         assertEquals(null, analysis.onCandleUpdate(update(firstLong, closed = true)))
 
