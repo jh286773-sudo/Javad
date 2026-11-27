@@ -27,8 +27,11 @@ class AnalysisSettingsTest {
     }
 
     @Test
-    fun exposesTheApprovedSingleTimeframeChoices() {
-        assertEquals(listOf("1m", "5m", "15m", "30m", "1h", "2h", "4h"), AnalysisTimeframe.entries.map { it.apiInterval })
+    fun exposesOnlyTheSixApprovedTimeframeChoices() {
+        assertEquals(
+            listOf("1m", "5m", "15m", "30m", "1h", "2h"),
+            AnalysisTimeframe.entries.map { it.apiInterval }
+        )
     }
 
     @Test
