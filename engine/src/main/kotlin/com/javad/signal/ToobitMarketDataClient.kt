@@ -98,13 +98,14 @@ class ToobitMarketDataClient(
     }
 
     /**
-     * Loads every completed candle currently available from Toobit for this
-     * contract/timeframe. The first exchange candle is discovered first and
-     * becomes the dataset anchor (Pine bar_index 0).
+     * Loads every completed candle currently returned by Toobit's kline
+     * endpoint for this contract/timeframe. The endpoint is paged backwards
+     * from the latest completed candle until it returns no older page; the
+     * result is then returned in ascending order. Its earliest candle becomes
+     * the dataset anchor (Pine bar_index 0).
      *
-     * Toobit's kline endpoint caps each response at 1,000 rows, so the complete
-     * range is fetched in chronological pages. No arbitrary 5,000-bar window
-     * is applied.
+     * Toobit's kline endpoint caps each response at 1,000 rows. No arbitrary
+     * 5,000-bar window is applied.
      */
     fun getAllHistoricalCandles(
         javadSymbol: String,
