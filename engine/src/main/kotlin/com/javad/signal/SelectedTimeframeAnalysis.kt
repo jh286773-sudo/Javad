@@ -48,6 +48,7 @@ class SelectedTimeframeAnalysis(
     private val lastProcessedOpenTime = mutableMapOf<String, Long>()
     private val firstProcessedOpenTime = mutableMapOf<String, Long>()
     private val latestFvgStates = mutableMapOf<String, FvgStateUpdate>()
+    private val committedHistory = mutableMapOf<String, List<MarketCandle>>()
 
     @Synchronized
     fun currentSettings(): AnalysisSettings = settings
@@ -69,12 +70,14 @@ class SelectedTimeframeAnalysis(
             lastProcessedOpenTime.clear()
             firstProcessedOpenTime.clear()
             latestFvgStates.clear()
+            committedHistory.clear()
         } else {
             removedSymbols.forEach { symbol ->
                 processors.remove(symbol)
                 lastProcessedOpenTime.remove(symbol)
                 firstProcessedOpenTime.remove(symbol)
                 latestFvgStates.remove(symbol)
+                committedHistory.remove(symbol)
             }
         }
     }
@@ -129,6 +132,7 @@ class SelectedTimeframeAnalysis(
         processors[normalized] = processor
         firstProcessedOpenTime[normalized] = candles.first().openTime
         lastProcessedOpenTime[normalized] = candles.last().openTime
+        committedHistory[normalized] = candles.toList()
         lastHistoryEvaluation?.fvgState?.let { latestFvgStates[normalized] = it }
     }
 
@@ -214,6 +218,15 @@ class SelectedTimeframeAnalysis(
     fun isHistoryLoaded(symbol: String): Boolean =
         processors.containsKey(symbol.trim().uppercase())
 
+    /**
+     * Compares the complete REST snapshot with the committed source candles.
+     * Range equality alone is insufficient: a missing or revised candle in
+     * the middle would otherwise leave HA recursion and cumulative Auto stale.
+     */
+    @Synchronized
+    fun historyMatches(symbol: String, candles: List<MarketCandle>): Boolean =
+        committedHistory[symbol.trim().uppercase()] == candles
+
     /** Earliest and latest committed candle timestamps for REST reconciliation. */
     @Synchronized
     fun historyRange(symbol: String): Pair<Long, Long>? {
@@ -236,5 +249,6 @@ class SelectedTimeframeAnalysis(
         lastProcessedOpenTime.remove(symbol)
         firstProcessedOpenTime.remove(symbol)
         latestFvgStates.remove(symbol)
+        committedHistory.remove(symbol)
     }
 }
