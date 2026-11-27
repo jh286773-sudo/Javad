@@ -119,52 +119,33 @@ class ToobitMarketDataClient(
             timeframe = timeframe,
             serverTimeMillis = minOf(serverTime, endTimeMillis)
         )
-        val firstAvailable = getEarliestAvailableCandleTime(
-            javadSymbol = javadSymbol,
-            timeframe = timeframe,
-            endTimeMillis = historyEnd,
-            pageLimit = pageLimit
-        )
-        return getHistoricalCandlesAtServerTime(
-            javadSymbol = javadSymbol,
-            timeframe = timeframe,
-            startTimeMillis = firstAvailable,
-            endTimeMillis = historyEnd,
-            pageLimit = pageLimit,
-            serverTimeMillis = serverTime
-        )
-    }
-
-    /**
-     * Finds the first kline returned for a zero-based history query. Toobit's
-     * startTime parameter is inclusive; asking from epoch zero lets the
-     * exchange identify the oldest retained/listed candle for this contract.
-     */
-    private fun getEarliestAvailableCandleTime(
-        javadSymbol: String,
-        timeframe: AnalysisTimeframe,
-        endTimeMillis: Long,
-        pageLimit: Int
-    ): Long {
         val contract = findContract(javadSymbol)
-        val requestPath = "/quote/v1/klines" +
-            "?symbol=${encode(contract.exchangeSymbol)}" +
-            "&interval=${encode(timeframe.apiInterval)}" +
-            "&startTime=0&endTime=$endTimeMillis&limit=$pageLimit"
-        val rows = getJson(requestPath)
-        if (!rows.isArray || rows.isEmpty) {
+        val sourceDuration = timeframe.durationMillis
+        val sourceCandles = collectPagesBackward(
+            endTimeExclusiveMillis = historyEnd,
+            sourceDuration = sourceDuration,
+            pageLimit = pageLimit
+        ) { cursorExclusive ->
+            val requestPath = "/quote/v1/klines" +
+                "?symbol=${encode(contract.exchangeSymbol)}" +
+                "&interval=${encode(timeframe.apiInterval)}" +
+                "&startTime=0&endTime=${cursorExclusive - 1L}&limit=$pageLimit"
+            val rows = getJson(requestPath)
+            if (!rows.isArray) {
+                throw ToobitApiException("Toobit returned a non-array kline page")
+            }
+            rows.map(::parseKline)
+        }
+
+        val completed = sourceCandles.filter {
+            it.openTime + sourceDuration <= minOf(serverTime, historyEnd)
+        }
+        if (completed.isEmpty()) {
             throw ToobitApiException(
-                "Toobit returned no historical candles for $javadSymbol at ${timeframe.apiInterval}"
+                "Toobit returned no completed historical candles for $javadSymbol at ${timeframe.apiInterval}"
             )
         }
-        val first = rows.map(::parseKline).minByOrNull { it.openTime }
-            ?: throw ToobitApiException("Toobit returned no parseable historical candles for $javadSymbol")
-        if (first.openTime <= 0L || first.openTime >= endTimeMillis ||
-            first.openTime % timeframe.durationMillis != 0L
-        ) {
-            throw ToobitApiException("Toobit returned an invalid earliest candle boundary for $javadSymbol")
-        }
-        return first.openTime
+        return completed
     }
 
     private fun getHistoricalCandlesAtServerTime(
@@ -187,10 +168,14 @@ class ToobitMarketDataClient(
             sourceDuration = sourceDuration,
             pageLimit = pageLimit
         ) { cursor ->
+            val pageEndExclusive = minOf(
+                endTimeMillis,
+                cursor + pageLimit.toLong() * sourceDuration
+            )
             val requestPath = "/quote/v1/klines" +
                 "?symbol=${encode(contract.exchangeSymbol)}" +
                 "&interval=${encode(sourceInterval)}" +
-                "&startTime=$cursor&endTime=$endTimeMillis&limit=$pageLimit"
+                "&startTime=$cursor&endTime=${pageEndExclusive - 1L}&limit=$pageLimit"
             val rows = getJson(requestPath)
             if (!rows.isArray) {
                 throw ToobitApiException("Toobit returned a non-array kline page")
@@ -271,6 +256,75 @@ class ToobitMarketDataClient(
         }
 
         return collected
+    }
+
+    /**
+     * Toobit applies the 1,000-row limit to the newest candles in a requested
+     * time range. Full history is therefore discovered backwards: each request
+     * ends just before the earliest candle from the previous page. A short page
+     * does not stop the scan; only an empty page marks the beginning of history.
+     */
+    internal fun collectPagesBackward(
+        endTimeExclusiveMillis: Long,
+        sourceDuration: Long,
+        pageLimit: Int,
+        fetchPage: (Long) -> List<MarketCandle>
+    ): List<MarketCandle> {
+        require(endTimeExclusiveMillis > 0L)
+        require(sourceDuration > 0L)
+        require(pageLimit in 1..1000)
+
+        val pagesNewestFirst = mutableListOf<List<MarketCandle>>()
+        val seenOpenTimes = mutableSetOf<Long>()
+        var cursorExclusive = endTimeExclusiveMillis
+        var previousPageEarliest: Long? = null
+
+        while (cursorExclusive > 0L) {
+            val page = fetchPage(cursorExclusive).sortedBy { it.openTime }
+            if (page.size > pageLimit) {
+                throw ToobitApiException("Toobit returned more candles than the requested page limit")
+            }
+
+            val fresh = page.filter { it.openTime < cursorExclusive }
+            if (fresh.isEmpty()) break
+
+            val expectedLast = cursorExclusive - sourceDuration
+            if (fresh.last().openTime != expectedLast) {
+                throw ToobitApiException(
+                    "Missing Toobit candle at $expectedLast while paging history backwards"
+                )
+            }
+
+            fresh.zipWithNext().forEach { (previous, next) ->
+                if (next.openTime - previous.openTime != sourceDuration) {
+                    throw ToobitApiException(
+                        "Missing or out-of-order Toobit candle at ${previous.openTime + sourceDuration}"
+                    )
+                }
+            }
+            fresh.forEach { candle ->
+                if (!seenOpenTimes.add(candle.openTime)) {
+                    throw ToobitApiException("Duplicate Toobit candle at ${candle.openTime}")
+                }
+            }
+
+            val earliest = fresh.first().openTime
+            if (previousPageEarliest != null &&
+                fresh.last().openTime != previousPageEarliest - sourceDuration
+            ) {
+                throw ToobitApiException(
+                    "Missing Toobit candle at ${previousPageEarliest - sourceDuration} between history pages"
+                )
+            }
+            pagesNewestFirst += fresh
+            previousPageEarliest = earliest
+            cursorExclusive = earliest
+        }
+
+        if (pagesNewestFirst.isEmpty()) {
+            throw ToobitApiException("Toobit returned no historical candles")
+        }
+        return pagesNewestFirst.asReversed().flatten()
     }
 
     /** Returns Toobit's server clock for history-window boundaries. */
