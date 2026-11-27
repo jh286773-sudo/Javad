@@ -2,8 +2,8 @@ package com.javad.signal
 
 /**
  * A LuxAlgo FVG + Auto signal can be delivered intrabar, matching the source
- * indicator's realtime behavior. Same-direction repeats are suppressed until
- * an opposite-direction signal appears.
+ * indicator's realtime behavior. Every new qualifying candle can emit,
+ * including consecutive signals in the same direction.
  */
 data class TimeframeSignal(
     val symbol: String,
@@ -25,8 +25,9 @@ data class TimeframeSignal(
  * FVG-array state using Pine rollback semantics. A qualifying LONG/SHORT may
  * be delivered intrabar, as in LuxAlgo; preview never commits ta.cum, bar_index,
  * or FVG arrays. The final closed snapshot commits source calculation state.
- * Repeated signals in the same direction are suppressed until the opposite
- * direction is confirmed on a later closed candle.
+ * Each qualifying candle can emit independently, including repeated signals
+ * in the same direction. Only duplicate notifications for the same candle
+ * are suppressed.
  *
  * Numbering follows Pine's chart dataset: the earliest candle returned by
  * Toobit's history request is bar_index 0; each subsequent candle gets the
@@ -47,7 +48,6 @@ class SelectedTimeframeAnalysis(
     private val lastProcessedOpenTime = mutableMapOf<String, Long>()
     private val latestFvgStates = mutableMapOf<String, FvgStateUpdate>()
     private val lastEmittedSignalOpenTime = mutableMapOf<String, Long>()
-    private val lastEmittedDirection = mutableMapOf<String, FvgDirection>()
 
     @Synchronized
     fun currentSettings(): AnalysisSettings = settings
@@ -69,14 +69,12 @@ class SelectedTimeframeAnalysis(
             lastProcessedOpenTime.clear()
             latestFvgStates.clear()
             lastEmittedSignalOpenTime.clear()
-            lastEmittedDirection.clear()
         } else {
             removedSymbols.forEach { symbol ->
                 processors.remove(symbol)
                 lastProcessedOpenTime.remove(symbol)
                 latestFvgStates.remove(symbol)
                 lastEmittedSignalOpenTime.remove(symbol)
-                lastEmittedDirection.remove(symbol)
             }
         }
     }
@@ -93,7 +91,6 @@ class SelectedTimeframeAnalysis(
     fun loadHistory(
         symbol: String,
         candles: List<MarketCandle>,
-        preserveSignalDirection: Boolean = false,
         firstChartBarIndex: Long = 0L,
         initialCumulativeAbsoluteDelta: Double = 0.0
     ) {
@@ -114,8 +111,6 @@ class SelectedTimeframeAnalysis(
                 }
             }
         }
-        val previousDirection = if (preserveSignalDirection) lastEmittedDirection[normalized] else null
-
         val processor = LuxAlgoFvgAutoProcessor(
             chartTimeframe = settings.selectedTimeframe,
             autoThresholdEnabled = autoThresholdEnabled,
@@ -133,11 +128,6 @@ class SelectedTimeframeAnalysis(
         processors[normalized] = processor
         lastProcessedOpenTime[normalized] = candles.last().openTime
         lastEmittedSignalOpenTime.remove(normalized)
-        if (preserveSignalDirection && previousDirection != null) {
-            lastEmittedDirection[normalized] = previousDirection
-        } else {
-            lastEmittedDirection.remove(normalized)
-        }
         lastHistoryEvaluation?.fvgState?.let { latestFvgStates[normalized] = it }
     }
 
@@ -204,7 +194,6 @@ class SelectedTimeframeAnalysis(
         val delta = evaluation.deltaPercent ?: return null
         val threshold = evaluation.autoThreshold ?: return null
         val direction = if (evaluation.bullishFvg) FvgDirection.LONG else FvgDirection.SHORT
-        if (lastEmittedDirection[normalized] == direction) return null
 
         val signal = Signal(
             direction = direction,
@@ -213,7 +202,6 @@ class SelectedTimeframeAnalysis(
             autoThreshold = threshold
         )
         lastEmittedSignalOpenTime[normalized] = update.candle.openTime
-        lastEmittedDirection[normalized] = direction
         return TimeframeSignal(
             symbol = normalized,
             timeframe = settings.selectedTimeframe,
@@ -240,6 +228,5 @@ class SelectedTimeframeAnalysis(
         lastProcessedOpenTime.remove(symbol)
         latestFvgStates.remove(symbol)
         lastEmittedSignalOpenTime.remove(symbol)
-        lastEmittedDirection.remove(symbol)
     }
 }
