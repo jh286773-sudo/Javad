@@ -10,23 +10,44 @@ class TradingViewBasicHistoryWindowTest {
     private val oneDay = 24L * 60L * 60L * 1000L
 
     @Test
-    fun endBoundaryIsRoundedDownToSelectedTimeframe() {
-        val serverTime = Instant.parse("2026-11-27T12:34:56.789Z").toEpochMilli()
+    fun latestCandleTracksMarketTimeWithinTheDay() {
         AnalysisTimeframe.entries.forEach { timeframe ->
-            val end = TradingViewBasicHistoryWindow.endTimeMillis(timeframe, serverTime)
-            assertEquals(0L, end % timeframe.durationMillis)
-            assertEquals(serverTime - serverTime % timeframe.durationMillis, end)
+            val morning = Instant.parse("2026-11-27T08:17:43Z").toEpochMilli()
+            val later = Instant.parse("2026-11-27T13:42:19Z").toEpochMilli()
+            val firstStart = TradingViewBasicHistoryWindow.startTimeMillis(timeframe, morning)
+            val laterStart = TradingViewBasicHistoryWindow.startTimeMillis(timeframe, later)
+            val firstLatest = TradingViewBasicHistoryWindow.latestCandleOpenTimeMillis(timeframe, morning)
+            val laterLatest = TradingViewBasicHistoryWindow.latestCandleOpenTimeMillis(timeframe, later)
+
+            assertEquals(firstStart, laterStart, timeframe.apiInterval)
+            assertTrue(laterLatest > firstLatest, timeframe.apiInterval)
+            assertEquals(0L, laterLatest % timeframe.durationMillis, timeframe.apiInterval)
         }
     }
 
     @Test
-    fun endBoundaryDoesNotIncludeTheCurrentlyFormingCandle() {
-        val timeframe = AnalysisTimeframe.FIFTEEN_MINUTES
-        val serverTime = Instant.parse("2026-11-27T12:34:56Z").toEpochMilli()
-        val end = TradingViewBasicHistoryWindow.endTimeMillis(timeframe, serverTime)
-        assertEquals(0L, end % timeframe.durationMillis)
-        assertTrue(end <= serverTime)
-        assertTrue(serverTime - end < timeframe.durationMillis)
+    fun latestCandleMovesByOneBarWhenTheNextBarBegins() {
+        AnalysisTimeframe.entries.forEach { timeframe ->
+            val first = Instant.parse("2026-11-27T12:00:00Z").toEpochMilli()
+            val next = first + timeframe.durationMillis
+            assertEquals(
+                timeframe.durationMillis,
+                TradingViewBasicHistoryWindow.latestCandleOpenTimeMillis(timeframe, next) -
+                    TradingViewBasicHistoryWindow.latestCandleOpenTimeMillis(timeframe, first),
+                timeframe.apiInterval
+            )
+        }
+    }
+
+    @Test
+    fun restEndIsExclusiveAtTheCurrentCandleOpenTime() {
+        AnalysisTimeframe.entries.forEach { timeframe ->
+            val serverTime = Instant.parse("2026-11-27T12:34:56.789Z").toEpochMilli()
+            val latest = TradingViewBasicHistoryWindow.latestCandleOpenTimeMillis(timeframe, serverTime)
+            assertEquals(latest, TradingViewBasicHistoryWindow.endTimeMillis(timeframe, serverTime))
+            assertTrue(latest <= serverTime)
+            assertTrue(serverTime - latest < timeframe.durationMillis)
+        }
     }
 
     @Test
@@ -49,10 +70,12 @@ class TradingViewBasicHistoryWindowTest {
     }
 
     @Test
-    fun firstBoundaryAdvancesByExactlyOneUtcDayAndDropsOneDaysBars() {
+    fun leftBoundaryAdvancesOnlyAtUtcMidnightByOneDayOfBars() {
         AnalysisTimeframe.entries.forEach { timeframe ->
-            val first = TradingViewBasicHistoryWindow.startTimeMillis(timeframe, reference)
-            val nextDay = TradingViewBasicHistoryWindow.startTimeMillis(timeframe, reference + oneDay)
+            val beforeMidnight = reference + oneDay - 1L
+            val atMidnight = reference + oneDay
+            val first = TradingViewBasicHistoryWindow.startTimeMillis(timeframe, beforeMidnight)
+            val nextDay = TradingViewBasicHistoryWindow.startTimeMillis(timeframe, atMidnight)
             assertEquals(oneDay, nextDay - first, timeframe.apiInterval)
             assertEquals(
                 oneDay / timeframe.durationMillis,
@@ -63,7 +86,19 @@ class TradingViewBasicHistoryWindowTest {
     }
 
     @Test
-    fun referenceSnapshotHasExpectedWindowLengths() {
+    fun liveCandleCountIncludesTheCurrentFormingCandle() {
+        AnalysisTimeframe.entries.forEach { timeframe ->
+            val now = Instant.parse("2026-11-27T12:34:56Z").toEpochMilli()
+            assertEquals(
+                TradingViewBasicHistoryWindow.expectedCompletedCandleCount(timeframe, now) + 1L,
+                TradingViewBasicHistoryWindow.expectedLiveCandleCount(timeframe, now),
+                timeframe.apiInterval
+            )
+        }
+    }
+
+    @Test
+    fun referenceSnapshotHasExpectedCompletedWindowLengths() {
         val expectedCounts = mapOf(
             AnalysisTimeframe.ONE_MINUTE to 5_760L,
             AnalysisTimeframe.FIVE_MINUTES to 5_184L,
@@ -78,6 +113,9 @@ class TradingViewBasicHistoryWindowTest {
                 TradingViewBasicHistoryWindow.expectedCompletedCandleCount(timeframe, reference),
                 timeframe.apiInterval
             )
+            assertEquals(expected + 1L,
+                TradingViewBasicHistoryWindow.expectedLiveCandleCount(timeframe, reference),
+                timeframe.apiInterval)
         }
     }
 }
