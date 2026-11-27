@@ -1,6 +1,11 @@
 package com.javad.signal
 
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.ThreadFactory
+import java.util.concurrent.TimeUnit
 
 /**
  * Connects the existing Toobit market-data and FVG/Auto engine into one
@@ -23,6 +28,10 @@ class ToobitSignalMonitor(
 ) : AutoCloseable {
     @Volatile
     private var stream: ToobitKlineStream? = null
+    private var reconciliationExecutor: ScheduledExecutorService? = null
+    private var reconciliationTask: ScheduledFuture<*>? = null
+    private var activeContracts: List<ToobitPerpetualContract> = emptyList()
+    private var activeTimeframe: AnalysisTimeframe? = null
 
     @Synchronized
     fun start(settings: AnalysisSettings): CompletableFuture<Void> {
@@ -53,12 +62,15 @@ class ToobitSignalMonitor(
                 analysis.loadHistory(contract.javadSymbol, history)
             }
 
+            activeContracts = contracts.toList()
+            activeTimeframe = settings.selectedTimeframe
             val newStream = ToobitKlineStream(onUpdate = ::handleUpdate)
             stream = newStream
-            return newStream.connect(contracts, settings.selectedTimeframe)
-                .whenComplete { _, error ->
-                    if (error != null) onError("Toobit WebSocket connection failed", error)
-                }
+            val connection = newStream.connect(contracts, settings.selectedTimeframe)
+            startPeriodicReconciliation(settings.selectedTimeframe)
+            return connection.whenComplete { _, error ->
+                if (error != null) onError("Toobit WebSocket connection failed", error)
+            }
         } catch (error: Throwable) {
             stopStream()
             onError("Could not start Toobit signal monitoring", error)
@@ -100,12 +112,71 @@ class ToobitSignalMonitor(
         }
     }
 
+    /**
+     * REST reconciliation is a safety net for silent WebSocket omissions and
+     * exchange-side history-boundary changes. If Toobit exposes an older first
+     * candle, all derived HA/index/cumulative state is rebuilt from that candle.
+     */
+    @Synchronized
+    private fun startPeriodicReconciliation(timeframe: AnalysisTimeframe) {
+        val executor = Executors.newSingleThreadScheduledExecutor(ThreadFactory { task ->
+            Thread(task, "javad-history-reconciliation").apply { isDaemon = true }
+        })
+        reconciliationExecutor = executor
+        val period = timeframe.durationMillis.coerceAtLeast(60_000L)
+        reconciliationTask = executor.scheduleAtFixedRate(
+            { reconcileAllHistories() },
+            period,
+            period,
+            TimeUnit.MILLISECONDS
+        )
+    }
+
+    @Synchronized
+    private fun reconcileAllHistories() {
+        if (stream == null) return
+        val timeframe = activeTimeframe ?: return
+        activeContracts.forEach { contract ->
+            try {
+                val endTime = marketData.getServerTimeMillis()
+                val history = marketData.getAllHistoricalCandles(
+                    javadSymbol = contract.javadSymbol,
+                    timeframe = timeframe,
+                    endTimeMillis = endTime
+                )
+                require(history.isNotEmpty()) {
+                    "Toobit returned no reconciliation history for ${contract.javadSymbol}"
+                }
+                val oldRange = analysis.historyRange(contract.javadSymbol)
+                val newRange = history.first().openTime to history.last().openTime
+                if (oldRange != newRange) {
+                    analysis.loadHistory(
+                        contract.javadSymbol,
+                        history,
+                        preserveLastSignalCandle = true
+                    )
+                }
+            } catch (error: Throwable) {
+                onError(
+                    "History reconciliation failed for ${contract.javadSymbol}; live state was not replaced",
+                    error
+                )
+            }
+        }
+    }
+
     @Synchronized
     fun stop() {
         stopStream()
     }
 
     private fun stopStream() {
+        reconciliationTask?.cancel(false)
+        reconciliationTask = null
+        reconciliationExecutor?.shutdownNow()
+        reconciliationExecutor = null
+        activeContracts = emptyList()
+        activeTimeframe = null
         val active = stream
         stream = null
         active?.close()
