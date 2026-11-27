@@ -124,7 +124,7 @@ Exact numerical parity still requires identical first candle and OHLC values thr
 
 - Every forming-candle update may be evaluated as a Pine realtime preview/rollback update. The current candle's high/low can make the raw FVG condition appear or disappear intrabar.
 - Intrabar previews do not commit cumulative Auto value, `bar_index`, or FVG arrays, and they never emit LONG/SHORT notifications.
-- JAVAD evaluates signal delivery only after Toobit marks the candle closed. The closed snapshot commits the candle's cumulative Auto contribution, advances `bar_index` once, commits FVG arrays, and then checks the combined FVG + Auto condition.
+- The mirrored LuxAlgo raw FVG conditions may become true intrabar; JAVAD deliberately applies the user's closed-candle notification rule without changing the FVG or Auto formulas. Toobit does not provide a separate close flag in this stream path: when the first update for the next candle arrives, JAVAD treats the preceding candle as closed. That closed snapshot commits the candle's cumulative Auto contribution, advances `bar_index` once, commits FVG arrays, and then checks the combined FVG + Auto condition.
 - Duplicate or stale updates for the same candle do not commit cumulative values twice or emit duplicate signals.
 - Same-direction signals are suppressed across candles. A new signal is delivered only when a qualifying closed candle changes the direction from LONG to SHORT or SHORT to LONG; the first qualifying closed-candle direction may establish the initial state.
 - Missing or out-of-order candles invalidate the affected symbol's processor; analysis must be warmed up again from REST history before continuing.
