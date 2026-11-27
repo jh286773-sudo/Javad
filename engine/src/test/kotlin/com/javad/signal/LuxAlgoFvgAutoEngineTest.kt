@@ -39,6 +39,40 @@ class LuxAlgoFvgAutoEngineTest {
     }
 
     @Test
+    fun defaultProcessorBuildsAndRetainsTheEntireHeikinAshiChainFromFirstToLastCandle() {
+        val timeframe = AnalysisTimeframe.FIVE_MINUTES
+        val interval = timeframe.durationMillis
+        val start = 1_700_000_000_000L - (1_700_000_000_000L % interval)
+        val processor = LuxAlgoFvgAutoProcessor(timeframe)
+        val raw = listOf(
+            candle(100.0, 102.0, 104.0, 99.0, start),
+            candle(102.0, 104.0, 106.0, 101.0, start + interval),
+            candle(104.0, 103.0, 108.0, 100.0, start + 2L * interval),
+            candle(103.0, 107.0, 110.0, 102.0, start + 3L * interval)
+        )
+
+        val first = processor.process(raw[0]).analysisCandle!!
+        val second = processor.process(raw[1]).analysisCandle!!
+        val third = processor.process(raw[2]).analysisCandle!!
+        assertEquals((100.0 + 102.0) / 2.0, first.open, 1e-12)
+        assertEquals((100.0 + 104.0 + 99.0 + 102.0) / 4.0, first.close, 1e-12)
+        assertEquals((first.open + first.close) / 2.0, second.open, 1e-12)
+        assertEquals((102.0 + 106.0 + 101.0 + 104.0) / 4.0, second.close, 1e-12)
+        assertEquals((second.open + second.close) / 2.0, third.open, 1e-12)
+
+        val preview = processor.preview(raw[3]).analysisCandle!!
+        assertEquals(3, processor.committedHeikinAshiHistory().size)
+        assertEquals((third.open + third.close) / 2.0, preview.open, 1e-12)
+
+        val fourth = processor.process(raw[3]).analysisCandle!!
+        val complete = processor.committedHeikinAshiHistory()
+        assertEquals(4, complete.size)
+        assertEquals(listOf(first, second, third, fourth), complete)
+        assertEquals((third.open + third.close) / 2.0, fourth.open, 1e-12)
+        assertEquals((103.0 + 110.0 + 102.0 + 107.0) / 4.0, fourth.close, 1e-12)
+    }
+
+    @Test
     fun autoThresholdUsesEveryChartBarCumulativeAbsoluteDeltaAndBarIndex() {
         val calculator = LuxAlgoFvgAutoCalculator(autoThresholdEnabled = true)
         val first = calculator.evaluate(input(open = 100.0, close = 100.1))
@@ -110,8 +144,8 @@ class LuxAlgoFvgAutoEngineTest {
             )
         }
 
-        val singlePass = LuxAlgoFvgAutoProcessor(timeframe).processHistory(candles)
-        val pagedProcessor = LuxAlgoFvgAutoProcessor(timeframe)
+        val singlePass = LuxAlgoFvgAutoProcessor(timeframe, useHeikinAshi = false).processHistory(candles)
+        val pagedProcessor = LuxAlgoFvgAutoProcessor(timeframe, useHeikinAshi = false)
         val pageSizes = mutableListOf<Int>()
         val pagedPass = candles.chunked(1_000).flatMap { page ->
             pageSizes += page.size
@@ -249,7 +283,7 @@ class LuxAlgoFvgAutoEngineTest {
 
     @Test
     fun processorRejectsMissingChartCandlesInsteadOfShiftingAutoThreshold() {
-        val processor = LuxAlgoFvgAutoProcessor(AnalysisTimeframe.FIFTEEN_MINUTES)
+        val processor = LuxAlgoFvgAutoProcessor(AnalysisTimeframe.FIFTEEN_MINUTES, useHeikinAshi = false)
         val start = 1_700_000_100_000L
         processor.process(candle(100.0, 101.0, 105.0, 95.0, start))
 
@@ -263,7 +297,7 @@ class LuxAlgoFvgAutoEngineTest {
         val timeframe = AnalysisTimeframe.FIVE_MINUTES
         val interval = timeframe.durationMillis
         val start = 1_700_000_000_000L - (1_700_000_000_000L % interval)
-        val processor = LuxAlgoFvgAutoProcessor(timeframe)
+        val processor = LuxAlgoFvgAutoProcessor(timeframe, useHeikinAshi = false)
 
         processor.process(candle(100.0, 100.1, 100.2, 99.9, start))
         processor.process(candle(100.1, 100.2, 100.3, 100.0, start + interval))
@@ -299,7 +333,7 @@ class LuxAlgoFvgAutoEngineTest {
         val timeframe = AnalysisTimeframe.FIVE_MINUTES
         val interval = timeframe.durationMillis
         val start = 1_700_000_000_000L - (1_700_000_000_000L % interval)
-        val processor = LuxAlgoFvgAutoProcessor(timeframe)
+        val processor = LuxAlgoFvgAutoProcessor(timeframe, useHeikinAshi = false)
 
         processor.process(candle(100.0, 99.9, 100.1, 99.8, start))
         processor.process(candle(99.9, 99.8, 100.0, 99.7, start + interval))
