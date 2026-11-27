@@ -124,7 +124,7 @@ There is exactly one selected `AnalysisTimeframe` per JAVAD settings instance. T
 
 There is no separate FVG timeframe. Changing the selected chart timeframe clears each symbol's warmed-up processor, bar index, cumulative Auto Threshold, and FVG arrays. History must be loaded again before live analysis resumes.
 
-Supported chart intervals are 1m, 5m, 15m, 30m, 1h, and 2h. The initial default is 5m for the current BTCUSDT.P comparison.
+Supported chart intervals are 1m, 5m, 15m, 30m, 1h, 2h, and 4h. The 4h duration is 14,400,000 milliseconds. The initial default is 5m for the current BTCUSDT.P comparison.
 
 ## 8. Toobit history window and bar index
 
@@ -203,8 +203,8 @@ The user directly observed the chart's left history boundary moving forward by o
 
 At each UTC midnight after the reference snapshot, the configured start timestamp advances by exactly 86,400,000 milliseconds. The exclusive end boundary is rounded down to the selected interval so the currently forming candle is excluded from the committed history seed. The resulting continuous candle list is loaded oldest-first; its first candle is bar_index 0, the first Heikin Ashi candle, and the origin of ta.cum. On a new UTC day the engine reloads the entire shifted window and rebuilds Heikin Ashi recursion, FVG arrays, bar index, and Auto cumulative state from the new first candle. It does not simply drop old candles while retaining the previous cumulative state.
 
-The expected completed candle counts at the reference instant 2026-11-27 00:00 UTC are 5,760 (1m), 5,184 (5m), 5,472 (15m), 33,360 (30m), 16,680 (1h), 8,340 (2h), and 6,366 (4h). The number removed at each daily shift is 86,400,000 / timeframe.durationMillis.
+The expected completed candle counts at the reference instant 2026-11-27 00:00 UTC are 5,760 (1m), 5,184 (5m), 5,472 (15m), 33,360 (30m), 16,680 (1h), 8,340 (2h), and 6,366 (4h). The 4h duration is exactly 14,400,000 milliseconds. The number removed at each daily shift is 86,400,000 / timeframe.durationMillis.
 
-Toobit's official USDT-M futures interval list includes 1m, 5m, 15m, 30m, 1h, 2h, and 4h; it does not list a native 3h interval. Therefore 3h is not exposed as a selectable native Toobit interval in this implementation. A synthetic 3h aggregation would require a separate, explicitly tested aggregation and live-streaming path and is not silently substituted.
+Toobit's official USDT-M REST kline interval list includes 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 8h, 12h, 1d, 1w, and 1M. Its documented futures WebSocket kline list includes 1m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 12h, 1d, 1w, and 1M. Neither list includes 3h, so 3h is not a native selectable interval and is not silently synthesized. A synthetic 3h aggregation would require a separate, explicitly tested aggregation and live-streaming path and is not silently substituted.
 
 This is a deterministic compatibility rule built from the user's observed TradingView chart boundaries. It does not claim that TradingView's internal Pine dataset selection is universally identical for every account, symbol, or plan. The separate parity acceptance gate remains: compare the actual Toobit chart and REST candle timestamps and OHLC values for the same symbol/timeframe. Until that comparison passes, formula and history-window alignment are implemented but exact numerical parity is not certified.
