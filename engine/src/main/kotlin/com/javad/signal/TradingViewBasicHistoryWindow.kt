@@ -1,22 +1,30 @@
 package com.javad.signal
 
-import java.time.DayOfWeek
-import java.time.Instant
 import java.time.ZoneId
 import java.time.ZoneOffset
-import java.time.temporal.TemporalAdjusters
 
 /**
- * Selects the history start used by Javad.
+ * Defines Javad's fixed historical dataset size.
  *
- * Uses the TradingView Basic-plan intraday history window: 5,000 bars back,
- * aligned to the documented calendar boundary (week/month/year). For 5m,
- * the threshold date is aligned to the beginning of that UTC week.
- * The first returned candle becomes Pine bar_index 0 and the start of ta.cum.
- * Toobit timestamps are Unix milliseconds and UTC is used for alignment.
+ * Every symbol is initialized with exactly 5,000 completed candles at the
+ * selected chart timeframe. The end boundary is rounded down to the current
+ * candle's open time, so the window contains the 5,000 immediately preceding
+ * completed candles. No week/month/year calendar expansion is applied.
+ *
+ * The earliest returned candle becomes Pine bar_index 0 and the starting point
+ * for the cumulative LuxAlgo Auto Threshold calculation. Toobit timestamps
+ * are Unix milliseconds and UTC candle boundaries are used.
  */
 object TradingViewBasicHistoryWindow {
     const val HISTORICAL_BARS: Int = 5_000
+
+    fun endTimeMillis(
+        timeframe: AnalysisTimeframe,
+        serverTimeMillis: Long
+    ): Long {
+        require(serverTimeMillis > 0L) { "serverTimeMillis must be positive" }
+        return serverTimeMillis - (serverTimeMillis % timeframe.durationMillis)
+    }
 
     fun startTimeMillis(
         timeframe: AnalysisTimeframe,
@@ -24,21 +32,12 @@ object TradingViewBasicHistoryWindow {
         zoneId: ZoneId = ZoneOffset.UTC
     ): Long {
         require(endTimeMillis > 0L) { "endTimeMillis must be positive" }
-
-        val lookbackMillis = HISTORICAL_BARS.toLong() * timeframe.durationMillis
-        val threshold = Instant.ofEpochMilli(endTimeMillis - lookbackMillis).atZone(zoneId)
-        val alignedStart = when (timeframe.durationMillis / 60_000L) {
-            in 1L..14L -> threshold.toLocalDate()
-                .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
-                .atStartOfDay(zoneId)
-            in 15L..29L -> threshold.toLocalDate()
-                .withDayOfMonth(1)
-                .atStartOfDay(zoneId)
-            in 30L..1439L -> threshold.toLocalDate()
-                .withDayOfYear(1)
-                .atStartOfDay(zoneId)
-            else -> threshold
+        // Retain the parameter for source compatibility; Toobit candle
+        // boundaries are UTC epoch-aligned, not local-calendar aligned.
+        require(zoneId == ZoneOffset.UTC || zoneId.rules.isFixedOffset) {
+            "History windows must use a fixed UTC-compatible timezone"
         }
-        return alignedStart.toInstant().toEpochMilli()
+        val alignedEnd = endTimeMillis - (endTimeMillis % timeframe.durationMillis)
+        return alignedEnd - HISTORICAL_BARS.toLong() * timeframe.durationMillis
     }
 }
