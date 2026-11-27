@@ -96,7 +96,23 @@ class SelectedTimeframeAnalysis(
         preserveSignalDirection: Boolean = false
     ) {
         val normalized = normalizeSelectedSymbol(symbol)
-        require(candles.isNotEmpty()) { "Complete Toobit history is required before live analysis" }
+        require(candles.size == TradingViewBasicHistoryWindow.HISTORICAL_BARS) {
+            "Exactly ${TradingViewBasicHistoryWindow.HISTORICAL_BARS} historical candles are required " +
+                "for $normalized; received ${candles.size}. Live analysis was not started."
+        }
+        val interval = settings.selectedTimeframe.durationMillis
+        candles.forEachIndexed { index, candle ->
+            require(candle.openTime > 0L && candle.openTime % interval == 0L) {
+                "Historical candle $index for $normalized is not aligned to ${settings.selectedTimeframe.apiInterval}"
+            }
+            if (index > 0) {
+                val expectedOpenTime = candles[index - 1].openTime + interval
+                require(candle.openTime == expectedOpenTime) {
+                    "Historical candles for $normalized must be strictly ascending and gap-free; " +
+                        "expected $expectedOpenTime at index $index but received ${candle.openTime}"
+                }
+            }
+        }
         val previousDirection = if (preserveSignalDirection) lastEmittedDirection[normalized] else null
 
         val processor = LuxAlgoFvgAutoProcessor(
