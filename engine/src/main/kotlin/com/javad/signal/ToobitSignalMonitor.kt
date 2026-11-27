@@ -6,18 +6,20 @@ import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.ThreadFactory
 import java.util.concurrent.TimeUnit
+import java.time.Instant
+import java.time.ZoneOffset
 
 /**
  * Connects the existing Toobit market-data and FVG/Auto engine into one
  * read-only monitoring lifecycle.
  *
- * Call start() from a background thread: it downloads all completed Toobit
- * history available for each selected USDT perpetual, warms
+ * Call start() from a background thread: it downloads the configured rolling
+ * TradingView-style history window for each selected USDT perpetual, warms
  * each symbol's independent Pine-style bar_index/ta.cum state, and only then
  * opens the live kline stream.
  *
- * On a detected stream gap, the affected symbol is reloaded from the same
- * earliest-available history anchor before live analysis resumes. This avoids continuing
+ * On a detected stream gap or UTC-day window rollover, the affected history
+ * is reloaded and its dataset origin is rebuilt before live analysis resumes. This avoids continuing
  * with a shifted bar index or an incomplete cumulative Auto Threshold.
  */
 class ToobitSignalMonitor(
@@ -30,6 +32,7 @@ class ToobitSignalMonitor(
     private var stream: ToobitKlineStream? = null
     private var reconciliationExecutor: ScheduledExecutorService? = null
     private var reconciliationTask: ScheduledFuture<*>? = null
+    private var dailyWindowRefreshTask: ScheduledFuture<*>? = null
     private var activeContracts: List<ToobitPerpetualContract> = emptyList()
     private var activeTimeframe: AnalysisTimeframe? = null
 
@@ -60,8 +63,8 @@ class ToobitSignalMonitor(
                 require(history.isNotEmpty()) {
                     "Toobit returned no completed history for ${contract.javadSymbol}"
                 }
-                // Every start rebuilds the full available history from its
-                // earliest candle. The final candle seeds the live stream
+                // Every start rebuilds the configured rolling window from its
+                // first candle. The final candle seeds the live stream
                 // cursor so startup omissions are detected immediately.
                 analysis.loadHistory(contract.javadSymbol, history)
                 latestCompletedBySymbol[contract.javadSymbol] = history.last()
@@ -126,8 +129,8 @@ class ToobitSignalMonitor(
 
     /**
      * REST reconciliation is a safety net for silent WebSocket omissions and
-     * exchange-side history-boundary changes. If Toobit exposes an older first
-     * candle, all derived HA/index/cumulative state is rebuilt from that candle.
+     * exchange-side revisions. A separate UTC-midnight task forces the rolling
+     * left edge to advance on the observed daily boundary.
      */
     @Synchronized
     private fun startPeriodicReconciliation(timeframe: AnalysisTimeframe) {
@@ -140,6 +143,26 @@ class ToobitSignalMonitor(
             { reconcileAllHistories() },
             period,
             period,
+            TimeUnit.MILLISECONDS
+        )
+
+        // Refresh the moving left edge exactly at each next UTC midnight,
+        // then once per UTC day. The shorter safety reconciliation above remains
+        // active for stream omissions and exchange-side candle revisions.
+        val serverNow = marketData.getServerTimeMillis()
+        val nextUtcMidnight = Instant.ofEpochMilli(serverNow)
+            .atZone(ZoneOffset.UTC)
+            .toLocalDate()
+            .plusDays(1)
+            .atStartOfDay(ZoneOffset.UTC)
+            .toInstant()
+            .toEpochMilli()
+        val initialDailyDelay = (nextUtcMidnight - serverNow).coerceAtLeast(1L)
+        val oneDayMillis = 24L * 60L * 60L * 1000L
+        dailyWindowRefreshTask = executor.scheduleAtFixedRate(
+            { reconcileAllHistories() },
+            initialDailyDelay,
+            oneDayMillis,
             TimeUnit.MILLISECONDS
         )
     }
@@ -185,6 +208,8 @@ class ToobitSignalMonitor(
     private fun stopStream() {
         reconciliationTask?.cancel(false)
         reconciliationTask = null
+        dailyWindowRefreshTask?.cancel(false)
+        dailyWindowRefreshTask = null
         reconciliationExecutor?.shutdownNow()
         reconciliationExecutor = null
         activeContracts = emptyList()
