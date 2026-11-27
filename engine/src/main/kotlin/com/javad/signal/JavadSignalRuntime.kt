@@ -24,9 +24,10 @@ class JavadSignalRuntime(
     )
 
     /**
-     * Loads each selected contract's exact configured rolling Toobit history window, initializes
-     * its independent LuxAlgo-style FVG + Auto state, then starts live updates.
-     * Invoke off the Android main thread because history retrieval is blocking.
+     * Discovers the latest closed Toobit candle, calculates the exact adaptive
+     * history size for the selected timeframe, warms the independent FVG +
+     * Auto state, and then starts live updates. Invoke off the Android main
+     * thread because history retrieval is blocking.
      */
     fun start(settings: AnalysisSettings): CompletableFuture<Void> =
         monitor.start(settings)
