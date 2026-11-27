@@ -84,11 +84,7 @@ class ToobitSignalMonitor(
                 require(history.isNotEmpty()) {
                     "Toobit returned no recovery history for ${update.javadSymbol}"
                 }
-                analysis.loadHistory(
-                    update.javadSymbol,
-                    history,
-                    preserveSignalDirection = true
-                )
+                analysis.loadHistory(update.javadSymbol, history)
                 if (update.isClosed) return
                 analysis.onCandleUpdate(update.copy(gapDetected = false))?.let(onSignal)
                 return
