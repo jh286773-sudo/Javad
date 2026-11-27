@@ -2,7 +2,7 @@
 
 ## Scope
 
-This audit covers only the LuxAlgo Smart Money Concepts Fair Value Gap (FVG) calculation with Auto Threshold enabled, its Chart-mode timeframe mapping, candle history indexing, and live-candle handling. It does not add EMA, RSI, ICT, or another strategy.
+This audit covers only two components: the LuxAlgo Smart Money Concepts Fair Value Gap (FVG) calculation and Auto Threshold, plus their Chart-mode timeframe mapping, candle history indexing, and live-candle handling. FVG's gap test references three candles; those are price inputs within FVG, not three separate indicators. No EMA, RSI, ICT, or other strategy is included.
 
 The implementation reference is the publicly available Smart Money Concepts [LuxAlgo] Pine source mirror at:
 - https://github.com/toikade/LuxAlgoScriptsAndOthers/blob/main/SmartmoneyConcepts
