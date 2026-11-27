@@ -122,8 +122,9 @@ class SelectedTimeframeAnalysis(
 
     /**
      * Evaluates every live snapshot against the raw LuxAlgo condition and
-     * commits only when the stream marks that candle closed. A detected gap
-     * invalidates the processor until REST backfill is loaded.
+     * commits only when the stream identifies the prior candle as closed
+     * after the next candle begins. A detected gap invalidates the processor
+     * until REST backfill is loaded.
      */
     @Synchronized
     fun onCandleUpdate(update: ToobitCandleUpdate): TimeframeSignal? {
