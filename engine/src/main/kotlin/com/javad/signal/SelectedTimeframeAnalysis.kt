@@ -93,10 +93,12 @@ class SelectedTimeframeAnalysis(
     @Synchronized
     fun loadHistory(
         symbol: String,
-        candles: List<MarketCandle>
+        candles: List<MarketCandle>,
+        preserveSignalDirection: Boolean = false
     ) {
         val normalized = normalizeSelectedSymbol(symbol)
         require(candles.isNotEmpty()) { "Complete Toobit history is required before live analysis" }
+        val previousDirection = if (preserveSignalDirection) lastEmittedDirection[normalized] else null
 
         val processor = LuxAlgoFvgAutoProcessor(
             chartTimeframe = settings.selectedTimeframe,
@@ -107,7 +109,11 @@ class SelectedTimeframeAnalysis(
         processors[normalized] = processor
         lastProcessedOpenTime[normalized] = candles.last().openTime
         lastEmittedSignalOpenTime.remove(normalized)
-        lastEmittedDirection.remove(normalized)
+        if (preserveSignalDirection && previousDirection != null) {
+            lastEmittedDirection[normalized] = previousDirection
+        } else {
+            lastEmittedDirection.remove(normalized)
+        }
         historyEvaluations.lastOrNull()?.fvgState?.let { latestFvgStates[normalized] = it }
     }
 
