@@ -156,8 +156,12 @@ class ToobitMarketDataClient(
             timeframe,
             calculationTime
         )
-        val historyStart = latestCompleted.openTime -
-            (completedCount - 1L) * timeframe.durationMillis
+        // Use the same centralized formula that owns the per-timeframe
+        // target-count table and the UTC-midnight remaining-slot calculation.
+        val historyStart = TradingViewBasicHistoryWindow.startTimeMillis(
+            timeframe,
+            calculationTime
+        )
         if (historyStart <= 0L || historyStart % timeframe.durationMillis != 0L) {
             throw ToobitApiException("Calculated history start is invalid for " + javadSymbol)
         }
