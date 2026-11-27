@@ -64,7 +64,7 @@ class ToobitMarketDataClient(
                 !inverse && status == "TRADING"
             ) {
                 ToobitPerpetualContract(
-                    javadSymbol = "${base}USDT.P",
+                    javadSymbol = base + "USDT.P",
                     exchangeSymbol = exchangeSymbol,
                     baseAsset = base,
                     quoteAsset = quote
@@ -98,10 +98,16 @@ class ToobitMarketDataClient(
     }
 
     /**
-     * Loads completed candles inside JAVAD's observed TradingView-style rolling
-     * window. The left boundary is timeframe-specific and advances by one UTC
-     * day at each UTC midnight. Forward pagination preserves one continuous
-     * dataset, so the first returned candle is Pine bar_index 0.
+     * Discovers the latest fully closed Toobit candle first. Its actual open
+     * timestamp anchors the calculation:
+     *
+     *   remaining = candle slots from the current candle open to next UTC midnight
+     *   completed = configured timeframe count - remaining
+     *   start = latest closed open - (completed - 1) * interval
+     *
+     * The older candles are then requested from Toobit and joined to the
+     * separately fetched latest closed candle. The current forming candle is
+     * excluded from REST history and is supplied by WebSocket as a preview.
      */
     fun getAllHistoricalCandles(
         javadSymbol: String,
@@ -111,23 +117,84 @@ class ToobitMarketDataClient(
     ): List<MarketCandle> {
         require(endTimeMillis > 0L) { "endTimeMillis must be positive" }
         require(pageLimit in 1..1000) { "Toobit kline page limit must be between 1 and 1000" }
+
         val serverTime = getServerTimeMillis()
-        val windowTime = minOf(serverTime, endTimeMillis)
-        val historyEnd = TradingViewBasicHistoryWindow.endTimeMillis(timeframe, windowTime)
-        val historyStart = TradingViewBasicHistoryWindow.startTimeMillis(timeframe, windowTime)
-        if (historyStart >= historyEnd) {
-            throw ToobitApiException(
-                "Configured ${timeframe.apiInterval} TradingView history window has no completed candles yet"
-            )
+        val calculationTime = minOf(serverTime, endTimeMillis)
+        val currentCandleOpen = TradingViewBasicHistoryWindow.latestCandleOpenTimeMillis(
+            timeframe,
+            calculationTime
+        )
+        val latestCompletedOpen = currentCandleOpen - timeframe.durationMillis
+        if (latestCompletedOpen <= 0L) {
+            throw ToobitApiException("No completed Toobit candle is available for " + javadSymbol)
         }
-        return getHistoricalCandlesAtServerTime(
+
+        // First request: obtain the latest completed candle and trust its
+        // exchange timestamp only after checking the selected interval.
+        val latestRows = getHistoricalCandlesAtServerTime(
             javadSymbol = javadSymbol,
             timeframe = timeframe,
-            startTimeMillis = historyStart,
-            endTimeMillis = historyEnd,
-            pageLimit = pageLimit,
+            startTimeMillis = latestCompletedOpen,
+            endTimeMillis = currentCandleOpen,
+            pageLimit = 1,
             serverTimeMillis = serverTime
         )
+        val latestCompleted = latestRows.singleOrNull()
+            ?: throw ToobitApiException(
+                "Toobit did not return the latest completed candle for " + javadSymbol
+            )
+        if (latestCompleted.openTime != latestCompletedOpen ||
+            latestCompleted.openTime % timeframe.durationMillis != 0L
+        ) {
+            throw ToobitApiException(
+                "Toobit's latest candle timestamp does not match the selected " +
+                    timeframe.apiInterval + " interval for " + javadSymbol
+            )
+        }
+
+        val completedCount = TradingViewBasicHistoryWindow.expectedCompletedCandleCount(
+            timeframe,
+            calculationTime
+        )
+        val historyStart = latestCompleted.openTime -
+            (completedCount - 1L) * timeframe.durationMillis
+        if (historyStart <= 0L || historyStart % timeframe.durationMillis != 0L) {
+            throw ToobitApiException("Calculated history start is invalid for " + javadSymbol)
+        }
+
+        // Second request: retrieve only the older candles. The latest candle
+        // is already held separately, so it is not downloaded twice.
+        val olderCandles = if (completedCount > 1L) {
+            getHistoricalCandlesAtServerTime(
+                javadSymbol = javadSymbol,
+                timeframe = timeframe,
+                startTimeMillis = historyStart,
+                endTimeMillis = latestCompleted.openTime,
+                pageLimit = pageLimit,
+                serverTimeMillis = serverTime
+            )
+        } else {
+            emptyList()
+        }
+
+        if (olderCandles.size.toLong() != completedCount - 1L) {
+            throw ToobitApiException(
+                "Expected " + (completedCount - 1L) + " older candles for " + javadSymbol +
+                    " but Toobit returned " + olderCandles.size
+            )
+        }
+
+        val history = olderCandles + latestCompleted
+        if (history.size.toLong() != completedCount ||
+            history.first().openTime != historyStart ||
+            history.last().openTime != latestCompleted.openTime
+        ) {
+            throw ToobitApiException(
+                "Toobit returned an incomplete history window for " + javadSymbol +
+                    "; refusing to start analysis with a shifted bar_index"
+            )
+        }
+        return history
     }
 
     private fun getHistoricalCandlesAtServerTime(
@@ -155,9 +222,11 @@ class ToobitMarketDataClient(
                 cursor + pageLimit.toLong() * sourceDuration
             )
             val requestPath = "/quote/v1/klines" +
-                "?symbol=${encode(contract.exchangeSymbol)}" +
-                "&interval=${encode(sourceInterval)}" +
-                "&startTime=${cursor - 1L}&endTime=${pageEndExclusive - 1L}&limit=$pageLimit"
+                "?symbol=" + encode(contract.exchangeSymbol) +
+                "&interval=" + encode(sourceInterval) +
+                "&startTime=" + (cursor - 1L) +
+                "&endTime=" + (pageEndExclusive - 1L) +
+                "&limit=" + pageLimit
             val rows = getJson(requestPath)
             if (!rows.isArray) {
                 throw ToobitApiException("Toobit returned a non-array kline page")
@@ -171,15 +240,17 @@ class ToobitMarketDataClient(
 
         if (completed.isNotEmpty() && completed.first().openTime != startTimeMillis) {
             throw ToobitApiException(
-                "Toobit history for $javadSymbol starts at ${completed.first().openTime}, " +
-                    "not the required dataset anchor $startTimeMillis; refusing to shift bar_index"
+                "Toobit history for " + javadSymbol + " starts at " + completed.first().openTime +
+                    ", not the required dataset anchor " + startTimeMillis +
+                    "; refusing to shift bar_index"
             )
         }
 
         completed.zipWithNext().forEach { (previous, next) ->
             if (next.openTime - previous.openTime != sourceDuration) {
                 throw ToobitApiException(
-                    "Missing Toobit candles for $javadSymbol at $sourceInterval; refusing inaccurate analysis"
+                    "Missing Toobit candles for " + javadSymbol + " at " + sourceInterval +
+                        "; refusing inaccurate analysis"
                 )
             }
         }
@@ -214,23 +285,26 @@ class ToobitMarketDataClient(
                 throw ToobitApiException("Toobit returned more candles than the requested page limit")
             }
             if (page.isEmpty()) {
-                throw ToobitApiException("Toobit returned no candle at required open time $cursor; the requested history window cannot be completed, so partial history is rejected")
+                throw ToobitApiException(
+                    "Toobit returned no candle at required open time " + cursor +
+                        "; the requested history window cannot be completed, so partial history is rejected"
+                )
             }
 
             val fresh = page.filter { it.openTime >= cursor && it.openTime < endTimeMillis }
             if (fresh.isEmpty()) {
-                throw ToobitApiException("Toobit pagination made no progress at $cursor")
+                throw ToobitApiException("Toobit pagination made no progress at " + cursor)
             }
             if (fresh.first().openTime != cursor) {
-                throw ToobitApiException("Missing Toobit candle at $cursor; refusing incomplete history")
+                throw ToobitApiException("Missing Toobit candle at " + cursor + "; refusing incomplete history")
             }
 
             fresh.forEach { candle ->
                 if (!seenOpenTimes.add(candle.openTime)) {
-                    throw ToobitApiException("Duplicate Toobit candle at ${candle.openTime}")
+                    throw ToobitApiException("Duplicate Toobit candle at " + candle.openTime)
                 }
                 if (candle.openTime != cursor) {
-                    throw ToobitApiException("Missing or out-of-order Toobit candle at $cursor")
+                    throw ToobitApiException("Missing or out-of-order Toobit candle at " + cursor)
                 }
                 collected += candle
                 cursor += sourceDuration
@@ -273,20 +347,21 @@ class ToobitMarketDataClient(
             val expectedLast = cursorExclusive - sourceDuration
             if (fresh.last().openTime != expectedLast) {
                 throw ToobitApiException(
-                    "Missing Toobit candle at $expectedLast while paging history backwards"
+                    "Missing Toobit candle at " + expectedLast + " while paging history backwards"
                 )
             }
 
             fresh.zipWithNext().forEach { (previous, next) ->
                 if (next.openTime - previous.openTime != sourceDuration) {
                     throw ToobitApiException(
-                        "Missing or out-of-order Toobit candle at ${previous.openTime + sourceDuration}"
+                        "Missing or out-of-order Toobit candle at " +
+                            (previous.openTime + sourceDuration)
                     )
                 }
             }
             fresh.forEach { candle ->
                 if (!seenOpenTimes.add(candle.openTime)) {
-                    throw ToobitApiException("Duplicate Toobit candle at ${candle.openTime}")
+                    throw ToobitApiException("Duplicate Toobit candle at " + candle.openTime)
                 }
             }
 
@@ -295,7 +370,8 @@ class ToobitMarketDataClient(
                 fresh.last().openTime != previousPageEarliest - sourceDuration
             ) {
                 throw ToobitApiException(
-                    "Missing Toobit candle at ${previousPageEarliest - sourceDuration} between history pages"
+                    "Missing Toobit candle at " +
+                        (previousPageEarliest - sourceDuration) + " between history pages"
                 )
             }
             pagesNewestFirst += fresh
@@ -320,7 +396,9 @@ class ToobitMarketDataClient(
     private fun findContract(javadSymbol: String): ToobitPerpetualContract =
         listUsdtPerpetualContracts().firstOrNull {
             it.javadSymbol.equals(javadSymbol.trim(), ignoreCase = true)
-        } ?: throw IllegalArgumentException("Unsupported or inactive Toobit USDT perpetual: $javadSymbol")
+        } ?: throw IllegalArgumentException(
+            "Unsupported or inactive Toobit USDT perpetual: " + javadSymbol
+        )
 
     private fun getJson(pathAndQuery: String): JsonNode {
         val request = HttpRequest.newBuilder(URI.create(baseUrl.trimEnd('/') + pathAndQuery))
@@ -330,12 +408,12 @@ class ToobitMarketDataClient(
             .build()
         val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
         if (response.statusCode() !in 200..299) {
-            throw ToobitApiException("Toobit returned HTTP ${response.statusCode()}")
+            throw ToobitApiException("Toobit returned HTTP " + response.statusCode())
         }
         return try {
             json.readTree(response.body())
         } catch (error: Exception) {
-            throw ToobitApiException("Could not parse Toobit response: ${error.message}")
+            throw ToobitApiException("Could not parse Toobit response: " + error.message)
         }
     }
 
