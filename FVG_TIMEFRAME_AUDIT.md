@@ -111,14 +111,16 @@ There is no separate FVG timeframe. Changing the selected chart timeframe clears
 
 Supported chart intervals are 1m, 5m, 15m, 30m, 1h, and 2h. The initial default is 5m for the current BTCUSDT.P comparison.
 
-## 7. TradingView history window and bar index
+## 7. Toobit history window and bar index
 
-TradingView's published intraday-history description states that the 5,000-bar limit is supplemented by bars back to the start of a calendar week, month, or year depending on the chart interval:
-- https://www.tradingview.com/support/solutions/43000480679-historical-intraday-data-bars-and-limits-explained/
+TradingView's Pine execution model calculates the script over the bars available in the chart dataset. The dataset size is constrained by TradingView's plan and chart-history availability; that limit is not a fixed part of LuxAlgo's Auto Threshold formula.
 
-JAVAD uses the TradingView Basic-plan 5,000-bar history window for the selected chart interval, aligned to the documented calendar boundary. For 5-minute charts, the lookback threshold is aligned to the beginning of the UTC week. The first completed candle actually returned by Toobit within that dataset becomes Pine-style `bar_index = 0`, and the cumulative Auto Threshold starts there and runs through the latest completed candle. The previously supplied 2026-11-09 00:00 UTC candle and 2026-11-12 13:05 UTC signal timestamp remain useful historical comparison points, but they are not hard-coded as the dataset start or a fixed bar index under a rolling 5,000-bar window.
+JAVAD does not use TradingView's Basic-plan 5,000-bar window. For each selected Toobit USDT perpetual and chart timeframe, it requests klines beginning at timestamp zero to discover the earliest candle returned by Toobit, then downloads the completed history from that candle through the latest completed candle in chronological pages. Toobit's documented `/quote/v1/klines` endpoint supports `startTime`, `endTime`, and a maximum page size of 1,000 rows:
+- https://api-docs.toobit.com/api/usdt-m-market-data.html
 
-Exact numerical parity still requires identical first candle and OHLC values throughout the history, plus matching timezone and candle availability.
+There is no fixed 5,000-candle cap in JAVAD. The oldest candle returned by Toobit becomes Pine-style `bar_index = 0`, and the cumulative Auto Threshold starts there. Pages are joined without resetting either `bar_index` or `ta.cum`; missing or duplicate intervals cause history loading to fail rather than silently changing the calculation.
+
+Exact numerical parity with TradingView still requires the same first candle and OHLC values throughout the dataset, plus matching timezone and candle availability. Toobit's available history can differ from TradingView's chart dataset.
 
 ## 8. Live updates, closed-candle signal timing, and data gaps
 

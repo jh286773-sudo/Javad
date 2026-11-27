@@ -6,13 +6,13 @@ import java.util.concurrent.CompletableFuture
  * Connects the existing Toobit market-data and FVG/Auto engine into one
  * read-only monitoring lifecycle.
  *
- * Call start() from a background thread: it downloads the TradingView Basic
- * plan-aligned Toobit history window for each selected USDT perpetual, warms
+ * Call start() from a background thread: it downloads all completed Toobit
+ * history available for each selected USDT perpetual, warms
  * each symbol's independent Pine-style bar_index/ta.cum state, and only then
  * opens the live kline stream.
  *
  * On a detected stream gap, the affected symbol is reloaded from the same
- * aligned history window before live analysis resumes. This avoids continuing
+ * earliest-available history anchor before live analysis resumes. This avoids continuing
  * with a shifted bar index or an incomplete cumulative Auto Threshold.
  */
 class ToobitSignalMonitor(

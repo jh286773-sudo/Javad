@@ -73,20 +73,20 @@ class ToobitMarketDataClientTest {
     }
 
     @Test
-    fun paginationConnectsFiveFullThousandCandlePages() {
+    fun paginationConnectsMoreThanFiveThousandCandlesAcrossPages() {
         val client = ToobitMarketDataClient()
         val duration = 60_000L
         val calls = mutableListOf<Long>()
-        val candles = client.collectPages(0L, 5_000L * duration, duration, 1_000) { cursor ->
+        val candles = client.collectPages(0L, 6_001L * duration, duration, 1_000) { cursor ->
             calls += cursor
-            (0 until 1_000).map { offset -> testCandle(cursor + offset * duration) }
+            (0 until minOf(1_000L, (6_001L * duration - cursor) / duration).toInt()).map { offset -> testCandle(cursor + offset * duration) }
         }
 
-        assertEquals(5_000, candles.size)
-        assertEquals(5, calls.size)
+        assertEquals(6_001, candles.size)
+        assertEquals(7, calls.size)
         assertEquals(0L, candles.first().openTime)
-        assertEquals(4_999L * duration, candles.last().openTime)
-        assertEquals((0 until 5_000).map { it * duration }, candles.map { it.openTime })
+        assertEquals(6_000L * duration, candles.last().openTime)
+        assertEquals((0 until 6_001).map { it * duration }, candles.map { it.openTime })
     }
 
     @Test
