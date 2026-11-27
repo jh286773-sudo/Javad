@@ -21,6 +21,7 @@ class SelectedTimeframeAnalysisTest {
         analysis.loadHistory("BTCUSDT.P", history)
 
         assertEquals(true, analysis.isHistoryLoaded("BTCUSDT.P"))
+        assertEquals(history.first().openTime to history.last().openTime, analysis.historyRange("BTCUSDT.P"))
     }
 
     @Test
@@ -35,6 +36,7 @@ class SelectedTimeframeAnalysisTest {
             analysis.loadHistory("BTCUSDT.P", emptyList())
         }
         assertEquals(false, analysis.isHistoryLoaded("BTCUSDT.P"))
+        assertEquals(null, analysis.historyRange("BTCUSDT.P"))
     }
 
     @Test
