@@ -58,6 +58,30 @@ class TradingViewBasicHistoryWindowTest {
     }
 
     @Test
+    fun startupAtSixPmSubtractsRemainingFiveMinuteSlotsAndAnchorsAtUtcMidnight() {
+        // At 18:03 UTC the 18:00 candle is forming, so 72 five-minute
+        // slots remain from its open through (but excluding) next midnight.
+        val serverTime = utc("2026-11-27T18:03:00Z")
+        val timeframe = AnalysisTimeframe.FIVE_MINUTES
+
+        assertEquals(
+            72L,
+            TradingViewBasicHistoryWindow.remainingCandleCountUntilNextUtcMidnight(
+                timeframe,
+                serverTime
+            )
+        )
+        assertEquals(
+            5_400L,
+            TradingViewBasicHistoryWindow.expectedCompletedCandleCount(timeframe, serverTime)
+        )
+        assertEquals(
+            utc("2026-11-09T00:00:00Z"),
+            TradingViewBasicHistoryWindow.startTimeMillis(timeframe, serverTime)
+        )
+    }
+
+    @Test
     fun utcMidnightMovesTheLeftEdgeByExactlyOneDayAndExcludesTheNewFormingCandle() {
         val midnight = utc("2026-11-28T00:00:00Z")
         val expected = mapOf(
