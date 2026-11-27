@@ -7,45 +7,71 @@ import kotlin.test.assertEquals
 
 class TradingViewBasicHistoryWindowTest {
     @Test
-    fun fiveMinuteBasicWindowAlignsToBeginningOfWeek() {
-        val end = Instant.parse("2026-11-27T12:34:00Z").toEpochMilli()
+    fun everySupportedTimeframeUsesExactlyFiveThousandIntervals() {
+        val serverTime = Instant.parse("2026-11-27T12:34:56.789Z").toEpochMilli()
+
+        AnalysisTimeframe.entries.forEach { timeframe ->
+            val end = TradingViewBasicHistoryWindow.endTimeMillis(timeframe, serverTime)
+            val start = TradingViewBasicHistoryWindow.startTimeMillis(
+                timeframe = timeframe,
+                endTimeMillis = end,
+                zoneId = ZoneOffset.UTC
+            )
+
+            assertEquals(0L, end % timeframe.durationMillis)
+            assertEquals(
+                TradingViewBasicHistoryWindow.HISTORICAL_BARS.toLong() * timeframe.durationMillis,
+                end - start,
+                "History window must contain exactly 5,000 ${timeframe.apiInterval} intervals"
+            )
+        }
+    }
+
+    @Test
+    fun oneHourWindowCoversAboutTwoHundredEightDays() {
+        val serverTime = Instant.parse("2026-11-27T12:34:56Z").toEpochMilli()
+        val end = TradingViewBasicHistoryWindow.endTimeMillis(
+            AnalysisTimeframe.ONE_HOUR,
+            serverTime
+        )
+        val start = TradingViewBasicHistoryWindow.startTimeMillis(
+            AnalysisTimeframe.ONE_HOUR,
+            end
+        )
+
+        val days = (end - start) / (24L * 60L * 60L * 1000L)
+        assertEquals(208L, days)
+    }
+
+    @Test
+    fun fiveMinuteWindowCoversAboutSeventeenDays() {
+        val serverTime = Instant.parse("2026-11-27T12:34:56Z").toEpochMilli()
+        val end = TradingViewBasicHistoryWindow.endTimeMillis(
+            AnalysisTimeframe.FIVE_MINUTES,
+            serverTime
+        )
         val start = TradingViewBasicHistoryWindow.startTimeMillis(
             AnalysisTimeframe.FIVE_MINUTES,
             end
         )
 
-        assertEquals(
-            Instant.parse("2026-11-09T00:00:00Z").toEpochMilli(),
-            start
-        )
+        val days = (end - start) / (24L * 60L * 60L * 1000L)
+        assertEquals(17L, days)
     }
 
     @Test
-    fun fifteenMinuteBasicWindowAlignsToBeginningOfMonth() {
-        val end = Instant.parse("2026-11-27T12:34:00Z").toEpochMilli()
+    fun fifteenMinuteWindowCoversAboutFiftyTwoDays() {
+        val serverTime = Instant.parse("2026-11-27T12:34:56Z").toEpochMilli()
+        val end = TradingViewBasicHistoryWindow.endTimeMillis(
+            AnalysisTimeframe.FIFTEEN_MINUTES,
+            serverTime
+        )
         val start = TradingViewBasicHistoryWindow.startTimeMillis(
             AnalysisTimeframe.FIFTEEN_MINUTES,
             end
         )
 
-        assertEquals(
-            Instant.parse("2026-10-01T00:00:00Z").toEpochMilli(),
-            start
-        )
-    }
-
-    @Test
-    fun thirtyMinuteBasicWindowAlignsToBeginningOfYear() {
-        val end = Instant.parse("2026-11-27T12:34:00Z").toEpochMilli()
-        val start = TradingViewBasicHistoryWindow.startTimeMillis(
-            AnalysisTimeframe.THIRTY_MINUTES,
-            end,
-            ZoneOffset.UTC
-        )
-
-        assertEquals(
-            Instant.parse("2026-01-01T00:00:00Z").toEpochMilli(),
-            start
-        )
+        val days = (end - start) / (24L * 60L * 60L * 1000L)
+        assertEquals(52L, days)
     }
 }
