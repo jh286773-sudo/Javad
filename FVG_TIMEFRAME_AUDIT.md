@@ -199,7 +199,6 @@ The user directly observed the chart's left history boundary moving forward by o
 | 30m | 2025-01-01 00:00 UTC | 48 |
 | 1h | 2025-01-01 00:00 UTC | 24 |
 | 2h | 2025-01-01 00:00 UTC | 12 |
-| 4h | 2024-01-01 00:00 UTC | 6 |
 
 At each UTC midnight after the reference snapshot, the configured start timestamp advances by exactly 86,400,000 milliseconds. The exclusive end boundary is rounded down to the selected interval so the currently forming candle is excluded from the committed history seed. The resulting continuous candle list is loaded oldest-first; its first candle is bar_index 0, the first Heikin Ashi candle, and the origin of ta.cum. On a new UTC day the engine reloads the entire shifted window and rebuilds Heikin Ashi recursion, FVG arrays, bar index, and Auto cumulative state from the new first candle. It does not simply drop old candles while retaining the previous cumulative state.
 
