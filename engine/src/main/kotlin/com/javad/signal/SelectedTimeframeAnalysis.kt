@@ -75,7 +75,6 @@ class SelectedTimeframeAnalysis(
             removedSymbols.forEach { symbol ->
                 processors.remove(symbol)
                 lastProcessedOpenTime.remove(symbol)
-        firstProcessedOpenTime.remove(symbol)
                 firstProcessedOpenTime.remove(symbol)
                 latestFvgStates.remove(symbol)
                 lastEmittedSignalOpenTime.remove(symbol)
@@ -252,6 +251,7 @@ class SelectedTimeframeAnalysis(
     private fun invalidate(symbol: String) {
         processors.remove(symbol)
         lastProcessedOpenTime.remove(symbol)
+        firstProcessedOpenTime.remove(symbol)
         latestFvgStates.remove(symbol)
         lastEmittedSignalOpenTime.remove(symbol)
     }
