@@ -41,30 +41,88 @@ class LuxAlgoFvgAutoEngineTest {
     }
 
     @Test
-    fun processorCanResumeAutoThresholdAcrossPaginatedHistoryWithoutResettingState() {
-        val processor = LuxAlgoFvgAutoProcessor(
-            chartTimeframe = AnalysisTimeframe.FIFTEEN_MINUTES,
+    fun calculatorResumesAutoThresholdWithPriorCumulativeValueAndPineIndex() {
+        val calculator = LuxAlgoFvgAutoCalculator(
             autoThresholdEnabled = true,
             firstChartBarIndex = 500L,
             initialCumulativeAbsoluteDelta = 25.0
         )
-        val start = 1_700_000_100_000L
-        val firstPageNextCandle = candle(
-            100.0, 101.0, 105.0, 95.0, start
-        )
 
-        val resumed = processor.process(firstPageNextCandle)
-
-        // Previous cumulative sum 25 + this candle's 1% absolute delta.
-        // Pine bar_index 500 is the denominator; current contribution is included.
+        val resumed = calculator.evaluate(input(open = 100.0, close = 101.0))
         assertEquals(500L, resumed.chartBarIndex)
         assertEquals(26.0 / 500.0 * 2.0, resumed.autoThreshold!!, 1e-12)
 
-        val following = processor.process(
-            candle(100.0, 102.0, 106.0, 96.0, start + 15L * 60_000L)
-        )
+        val following = calculator.evaluate(input(open = 100.0, close = 102.0))
         assertEquals(501L, following.chartBarIndex)
         assertEquals(28.0 / 501.0 * 2.0, following.autoThreshold!!, 1e-12)
+    }
+
+    @Test
+    fun threeThousandFiveHundredCandlesMatchAcrossSinglePassAndPageBoundaries() {
+        val timeframe = AnalysisTimeframe.FIVE_MINUTES
+        val interval = timeframe.durationMillis
+        val start = 1_700_000_000_000L - (1_700_000_000_000L % interval)
+        var previousClose = 100.0
+        val candles = (0 until 3_500).map { index ->
+            val open = previousClose
+            val changePercent = ((index * 37 % 101) - 50) * 0.015
+            val close = open * (1.0 + changePercent / 100.0)
+            val high = maxOf(open, close) * (1.0 + (0.20 + (index % 7) * 0.03) / 100.0)
+            val low = minOf(open, close) * (1.0 - (0.20 + (index % 5) * 0.04) / 100.0)
+            previousClose = close
+            MarketCandle(
+                openTime = start + index * interval,
+                open = open,
+                high = high,
+                low = low,
+                close = close,
+                volume = 10.0 + index
+            )
+        }
+
+        val singlePass = LuxAlgoFvgAutoProcessor(timeframe).processHistory(candles)
+        val pagedProcessor = LuxAlgoFvgAutoProcessor(timeframe)
+        val pageSizes = mutableListOf<Int>()
+        val pagedPass = candles.chunked(1_000).flatMap { page ->
+            pageSizes += page.size
+            page.map(pagedProcessor::process)
+        }
+
+        assertEquals(listOf(1_000, 1_000, 1_000, 500), pageSizes)
+        assertEquals(3_500, singlePass.size)
+        assertEquals(singlePass, pagedPass)
+        assertEquals(0L, singlePass.first().chartBarIndex)
+        assertEquals(3_499L, singlePass.last().chartBarIndex)
+
+        var cumulativeAbsoluteDelta = 0.0
+        candles.forEachIndexed { index, candle ->
+            val evaluation = singlePass[index]
+            val previous = candles.getOrNull(index - 1)
+            val twoBarsAgo = candles.getOrNull(index - 2)
+            val delta = previous?.let {
+                (it.close - it.open) / it.open * 100.0
+            }
+            if (delta != null) cumulativeAbsoluteDelta += abs(delta)
+            val expectedThreshold = if (index == 0) null
+                else cumulativeAbsoluteDelta / index.toDouble() * 2.0
+            if (expectedThreshold == null) {
+                assertNull(evaluation.autoThreshold)
+            } else {
+                assertEquals(expectedThreshold, evaluation.autoThreshold!!, 1e-10)
+            }
+
+            val threshold = expectedThreshold
+            val expectedBullish = delta != null && threshold != null && twoBarsAgo != null &&
+                candle.low > twoBarsAgo.high &&
+                previous!!.close > twoBarsAgo.high &&
+                delta > threshold
+            val expectedBearish = delta != null && threshold != null && twoBarsAgo != null &&
+                candle.high < twoBarsAgo.low &&
+                previous!!.close < twoBarsAgo.low &&
+                -delta > threshold
+            assertEquals(expectedBullish, evaluation.bullishFvg, "Bullish FVG mismatch at bar $index")
+            assertEquals(expectedBearish, evaluation.bearishFvg, "Bearish FVG mismatch at bar $index")
+        }
     }
 
     @Test
