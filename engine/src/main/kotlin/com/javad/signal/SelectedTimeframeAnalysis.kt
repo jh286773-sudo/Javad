@@ -1,10 +1,9 @@
 package com.javad.signal
 
 /**
- * A LuxAlgo FVG alert condition delivered at most once per source candle.
- * Intrabar evaluation remains live; repeated updates in the same candle do
- * not produce duplicate notifications. Same-direction signals across candles
- * are allowed whenever the LuxAlgo FVG + Auto condition is met.
+ * A LuxAlgo FVG + Auto signal confirmed only after its source candle closes.
+ * Same-direction repeats are suppressed until an opposite-direction signal
+ * is confirmed on a later closed candle.
  */
 data class TimeframeSignal(
     val symbol: String,
@@ -22,16 +21,13 @@ data class TimeframeSignal(
  * selected interval is the LuxAlgo chart timeframe; FVG uses Chart mode
  * (`fvg_tf = ""`), never an independent FVG interval.
  *
- * Every forming-candle update is evaluated intrabar from the last committed
- * Pine state. The source FVG condition can therefore appear or disappear
- * during the live candle. Only the final candle snapshot commits ta.cum,
- * bar_index, and FVG box arrays.
- *
- * The raw bullish_fvg_cnd/bearish_fvg_cnd conditions are evaluated on every
- * live update. A signal is delivered immediately on the first update where
- * the source condition becomes true, matching an intrabar Pine alert; the
- * once-per-candle guard suppresses repeats while the candle is still open.
- * Only the final candle snapshot commits ta.cum, bar_index, and FVG arrays.
+ * Every forming-candle update may preview the raw FVG condition and update
+ * the displayed preview state using Pine rollback semantics. Preview updates
+ * never emit a signal and never commit ta.cum, bar_index, or FVG arrays.
+ * A LONG/SHORT signal is evaluated for delivery only from the final closed
+ * candle snapshot, after that snapshot commits the source calculation state.
+ * Repeated signals in the same direction are suppressed until the opposite
+ * direction is confirmed on a later closed candle.
  *
  * Numbering follows Pine's chart dataset: the earliest candle returned by
  * Toobit's history request is bar_index 0; each subsequent candle gets the
@@ -52,6 +48,7 @@ class SelectedTimeframeAnalysis(
     private val lastProcessedOpenTime = mutableMapOf<String, Long>()
     private val latestFvgStates = mutableMapOf<String, FvgStateUpdate>()
     private val lastEmittedSignalOpenTime = mutableMapOf<String, Long>()
+    private val lastEmittedDirection = mutableMapOf<String, FvgDirection>()
 
     @Synchronized
     fun currentSettings(): AnalysisSettings = settings
@@ -73,12 +70,14 @@ class SelectedTimeframeAnalysis(
             lastProcessedOpenTime.clear()
             latestFvgStates.clear()
             lastEmittedSignalOpenTime.clear()
+            lastEmittedDirection.clear()
         } else {
             removedSymbols.forEach { symbol ->
                 processors.remove(symbol)
                 lastProcessedOpenTime.remove(symbol)
                 latestFvgStates.remove(symbol)
                 lastEmittedSignalOpenTime.remove(symbol)
+                lastEmittedDirection.remove(symbol)
             }
         }
     }
@@ -108,6 +107,7 @@ class SelectedTimeframeAnalysis(
         processors[normalized] = processor
         lastProcessedOpenTime[normalized] = candles.last().openTime
         lastEmittedSignalOpenTime.remove(normalized)
+        lastEmittedDirection.remove(normalized)
         historyEvaluations.lastOrNull()?.fvgState?.let { latestFvgStates[normalized] = it }
     }
 
@@ -166,15 +166,15 @@ class SelectedTimeframeAnalysis(
             lastProcessedOpenTime[normalized] = update.candle.openTime
         }
 
-        // LuxAlgo's bullish_fvg_cnd/bearish_fvg_cnd and alertcondition are
-        // evaluated on the live chart bar. Emit as soon as the condition first
-        // becomes true; do not add a candle-close requirement. The per-candle
-        // guard below prevents repeated notifications on subsequent ticks.
+        // Forming candles are preview-only. Even if the raw LuxAlgo
+        // conditions become true intrabar, no signal is emitted before close.
+        if (!update.isClosed) return null
         if (evaluation.bullishFvg == evaluation.bearishFvg) return null
         if (lastEmittedSignalOpenTime[normalized] == update.candle.openTime) return null
         val delta = evaluation.deltaPercent ?: return null
         val threshold = evaluation.autoThreshold ?: return null
         val direction = if (evaluation.bullishFvg) FvgDirection.LONG else FvgDirection.SHORT
+        if (lastEmittedDirection[normalized] == direction) return null
 
         val signal = Signal(
             direction = direction,
@@ -183,6 +183,7 @@ class SelectedTimeframeAnalysis(
             autoThreshold = threshold
         )
         lastEmittedSignalOpenTime[normalized] = update.candle.openTime
+        lastEmittedDirection[normalized] = direction
         return TimeframeSignal(
             symbol = normalized,
             timeframe = settings.selectedTimeframe,
@@ -209,5 +210,6 @@ class SelectedTimeframeAnalysis(
         lastProcessedOpenTime.remove(symbol)
         latestFvgStates.remove(symbol)
         lastEmittedSignalOpenTime.remove(symbol)
+        lastEmittedDirection.remove(symbol)
     }
 }
