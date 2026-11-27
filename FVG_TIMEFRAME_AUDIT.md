@@ -20,7 +20,7 @@ HA high  = max(high, HA open, HA close)
 HA low   = min(low, HA open, HA close)
 ```
 
-For the first candle in the loaded history, HA open = (open + close) / 2. The transformed HA candles are used for the previous-candle body delta, current high/low, two-bars-ago high/low, FVG box boundaries, and FVG invalidation. Toobit timestamps and volume are preserved. Live previews derive from the last committed HA candle and do not advance the recursive HA state; a closed candle commits once. Thus both FVG and Auto Threshold operate on Heikin Ashi, not merely a Heikin Ashi chart display.
+For the first candle in the loaded history, HA open = (open + close) / 2. The complete transformed HA series is built and retained oldest-first from the first candle in the loaded dataset through the latest committed candle. Each HA open after the first is calculated from the previous committed HA open and close. The HA candles are used for the previous-candle body delta, current high/low, two-bars-ago high/low, FVG box boundaries, and FVG invalidation. Toobit timestamps and volume are preserved. Live previews derive from the last committed HA candle and do not advance or append to the recursive HA series; a closed candle commits once. The signal payload also carries the HA candle used for its calculation. Thus both FVG and Auto Threshold operate on the complete Heikin Ashi series, not merely a Heikin Ashi chart display. Raw Toobit OHLCV is kept in a separate source snapshot solely to detect exchange-side revisions during REST reconciliation; it is not a strategy input.
 
 ## 2. Source input mapping
 
@@ -35,7 +35,7 @@ The Pine helper `get_ohlc()` returns:
 | `high[2]` | High two candles back | `highTwoBarsAgo` |
 | `low[2]` | Low two candles back | `lowTwoBarsAgo` |
 
-JAVAD keeps the last two committed chart candles per symbol to supply these offsets. Intrabar previews use the same committed history and do not advance the index or cumulative sum.
+JAVAD retains the full committed Heikin Ashi history per symbol. The previous and two-bars-ago offsets are read from this same HA series. Intrabar previews use the committed HA history and do not append, advance the index, or change the cumulative sum.
 
 ## 3. Percentage delta
 
