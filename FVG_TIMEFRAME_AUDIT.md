@@ -115,22 +115,23 @@ Supported chart intervals are 1m, 5m, 15m, 30m, 1h, and 2h. The initial default 
 
 TradingView's Pine execution model calculates the script over the bars available in the chart dataset. The dataset size is constrained by TradingView's plan and chart-history availability; that limit is not a fixed part of LuxAlgo's Auto Threshold formula.
 
-JAVAD does not use TradingView's Basic-plan 5,000-bar window. For each selected Toobit USDT perpetual and chart timeframe, it requests klines beginning at timestamp zero to discover the earliest candle returned by Toobit, then downloads the completed history from that candle through the latest completed candle in chronological pages. Toobit's documented `/quote/v1/klines` endpoint supports `startTime`, `endTime`, and a maximum page size of 1,000 rows:
+JAVAD does not use TradingView's Basic-plan 5,000-bar window. Toobit's documented `/quote/v1/klines` endpoint supports `startTime`, `endTime`, and a maximum page size of 1,000 rows:
 - https://api-docs.toobit.com/api/usdt-m-market-data.html
 
-There is no fixed 5,000-candle cap in JAVAD. The oldest candle returned by Toobit becomes Pine-style `bar_index = 0`, and the cumulative Auto Threshold starts there. Pages are joined without resetting either `bar_index` or `ta.cum`; missing or duplicate intervals cause history loading to fail rather than silently changing the calculation.
+Live testing showed that a broad request returns only the newest page, not the entire range. JAVAD therefore requests bounded forward windows for explicit ranges and discovers full history by paging backward from the latest completed candle until Toobit returns no older page. The result is sorted into ascending order before the engine starts. No arbitrary 5,000-candle cap is applied. The earliest candle actually returned by the endpoint becomes Pine-style `bar_index = 0`, and the cumulative Auto Threshold starts there. Page boundaries do not reset either `bar_index` or `ta.cum`; missing or duplicate intervals cause history loading to fail rather than silently changing the calculation.
 
-Exact numerical parity with TradingView still requires the same first candle and OHLC values throughout the dataset, plus matching timezone and candle availability. Toobit's available history can differ from TradingView's chart dataset.
+A live Toobit test on 2026-11-27 returned 3,499 completed 5-minute candles for each of BTCUSDT.P and ETHUSDT.P, across four pages. The first returned candle was 2026-11-15 04:50 UTC and the last was 2026-11-27 08:20 UTC. This is the history returned by the tested public endpoint at that time, not a claim that every TradingView chart has the same dataset.
+
+The saved TradingView comparison anchor for this project is 2026-11-09 00:00 UTC. That is 1,786 five-minute bars earlier than the first candle returned by the live Toobit API test. Because Auto Threshold depends on both `bar_index` and the cumulative absolute delta, the different starting candle can produce different thresholds and signals even when the formulas are identical. Exact numerical parity with TradingView still requires the same first candle and OHLC values throughout the dataset, plus matching timezone and candle availability.
 
 ## 8. Live updates, closed-candle signal timing, and data gaps
 
-- Every forming-candle update may be evaluated as a Pine realtime preview/rollback update. The current candle's high/low can make the raw FVG condition appear or disappear intrabar.
-- Intrabar previews do not commit cumulative Auto value, `bar_index`, or FVG arrays, and they never emit LONG/SHORT notifications.
-- The mirrored LuxAlgo raw FVG conditions may become true intrabar; JAVAD deliberately applies the user's closed-candle notification rule without changing the FVG or Auto formulas. Toobit does not provide a separate close flag in this stream path: when the first update for the next candle arrives, JAVAD treats the preceding candle as closed. That closed snapshot commits the candle's cumulative Auto contribution, advances `bar_index` once, commits FVG arrays, and then checks the combined FVG + Auto condition.
-- Duplicate or stale updates for the same candle do not commit cumulative values twice or emit duplicate signals.
-- Same-direction signals are suppressed across candles. A new signal is delivered only when a qualifying closed candle changes the direction from LONG to SHORT or SHORT to LONG; the first qualifying closed-candle direction may establish the initial state.
+- Every forming-candle update is evaluated as a Pine realtime preview/rollback update. The current candle's high/low can make the raw FVG condition appear or disappear intrabar.
+- A qualifying preview can emit a LONG/SHORT notification intrabar. Preview does not commit cumulative Auto value, `bar_index`, or FVG arrays; the later closed snapshot commits them once. If the same candle already emitted, its close does not create a duplicate notification.
+- Each new qualifying candle can emit independently, including consecutive signals in the same direction. Only duplicate notifications for the same candle are suppressed.
+- Toobit does not provide a separate close flag in this stream path: when the first update for the next candle arrives, JAVAD treats the preceding candle as closed and commits its calculation state.
 - Missing or out-of-order candles invalidate the affected symbol's processor; analysis must be warmed up again from REST history before continuing.
-- Every selected contract has independent history, bar index, cumulative delta, FVG zones, and last emitted direction.
+- Every selected contract has independent history, bar index, cumulative delta, FVG zones, and per-candle notification memory.
 
 ## 9. Known parity boundary — not yet proven
 
@@ -140,4 +141,4 @@ The formulas and indexing behavior above are mapped to the cited public LuxAlgo 
 - UTC alignment and any chart timezone differences.
 - Any historical candle revisions or feed-specific rounding.
 
-The user's first-candle and signal timestamps establish an index expectation, not OHLC identity. The post-install phone comparison will be the validation stage. No tests or live trading actions are run as part of this code integration.
+The user's first-candle and signal timestamps establish an index expectation, not OHLC identity. Automated tests now cover the Auto formula, bullish/bearish FVG conditions, paired FVG box boundaries and invalidation, 3,500-candle page-boundary equivalence, live BTC/ETH Toobit history, and per-candle signal behavior. No live trading actions are part of the test suite.
