@@ -1,9 +1,8 @@
 package com.javad.signal
 
 /**
- * A LuxAlgo FVG + Auto signal can be delivered intrabar, matching the source
- * indicator's realtime behavior. Same-direction repeats are suppressed until
- * an opposite-direction signal appears.
+ * A LuxAlgo FVG + Auto signal is delivered only after its candle closes.
+ * Same-direction repeats are suppressed until an opposite-direction signal appears.
  */
 data class TimeframeSignal(
     val symbol: String,
@@ -22,11 +21,11 @@ data class TimeframeSignal(
  * (`fvg_tf = ""`), never an independent FVG interval.
  *
  * Every forming-candle update previews the raw FVG condition and displayed
- * FVG-array state using Pine rollback semantics. A qualifying LONG/SHORT may
- * be delivered intrabar, as in LuxAlgo; preview never commits ta.cum, bar_index,
- * or FVG arrays. The final closed snapshot commits source calculation state.
- * Repeated signals in the same direction are suppressed until the opposite
- * direction is confirmed on a later closed candle.
+ * FVG-array state using Pine rollback semantics. Preview never emits LONG/SHORT
+ * notifications and never commits ta.cum, bar_index, or FVG arrays. The final
+ * closed snapshot commits source calculation state and may emit a signal.
+ * Repeated signals in the same direction are suppressed until an opposite
+ * direction appears on a later qualifying closed candle.
  *
  * Numbering follows Pine's chart dataset: the earliest candle returned by
  * Toobit's history request is bar_index 0; each subsequent candle gets the
@@ -189,10 +188,12 @@ class SelectedTimeframeAnalysis(
         evaluation.fvgState?.let { latestFvgStates[normalized] = it }
         if (update.isClosed) {
             lastProcessedOpenTime[normalized] = update.candle.openTime
+        } else {
+            // Keep Pine realtime rollback previews visible, but never notify
+            // until the exchange has confirmed this candle is closed.
+            return null
         }
 
-        // LuxAlgo evaluates the current bar intrabar. A qualifying preview
-        // can therefore emit immediately; the later close only commits state.
         if (evaluation.bullishFvg == evaluation.bearishFvg) return null
         if (lastEmittedSignalOpenTime[normalized] == update.candle.openTime) return null
         val delta = evaluation.deltaPercent ?: return null
